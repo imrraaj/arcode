@@ -1,15 +1,33 @@
 import { useState, useEffect, useCallback } from "react";
-import { render, Box, Text, useInput, useApp } from "ink";
-import { stepCountIs, streamText, tool } from "ai";
+import { render, Box, Text, useInput, useApp, Static } from "ink";
+import { stepCountIs, streamText } from "ai";
 import { nvidia } from "./provider";
-import z from "zod";
-import { openai } from "@ai-sdk/openai";
-import { tavily } from "@tavily/core";
 import { webSearchTool } from "./tools/websearch";
-import { createFileTool, readFileTool, subAgentTool, writeFileTool } from "./tools";
-
+import { subAgentTool } from "./tools";
+import { marked } from "marked";
+import TerminalRenderer from "marked-terminal";
 
 const MODEL = "qwen/qwen3.5-122b-a10b";
+
+marked.setOptions({
+  renderer: new TerminalRenderer() as any,
+  gfm: true,
+});
+
+const normalizeMarkdown = (content: string): string => {
+  return content
+    .split("\n")
+    .map((line) => line.replace(/^\s{4,}((?:[-*+]\s|\d+\.\s))/, "$1"))
+    .join("\n");
+};
+
+const renderMarkdown = (content: string): string => {
+  try {
+    return String(marked.parse(normalizeMarkdown(content)));
+  } catch {
+    return content;
+  }
+};
 
 interface Message {
   role: "user" | "assistant" | "system";
@@ -77,6 +95,8 @@ function TextInput({
 // ─── Message Bubble ──────────────────────────────────────────────────────────
 
 function MessageView({ msg }: { msg: Message }) {
+  const renderedContent = msg.role === "assistant" ? renderMarkdown(msg.content) : msg.content;
+
   if (msg.role === "user") {
     return (
       <Box marginTop={1} marginBottom={0}>
@@ -84,7 +104,7 @@ function MessageView({ msg }: { msg: Message }) {
           {"  YOU "}
         </Text>
         <Text dimColor>│ </Text>
-        <Text>{msg.content}</Text>
+        <Text>{renderedContent}</Text>
       </Box>
     );
   }
@@ -100,7 +120,7 @@ function MessageView({ msg }: { msg: Message }) {
         </Text>
       </Box>
       <Box marginLeft={2} marginTop={0} paddingLeft={1} borderStyle="single" borderColor="gray" borderLeft borderTop={false} borderRight={false} borderBottom={false}>
-        <Text>{msg.content}</Text>
+        <Text>{renderedContent}</Text>
       </Box>
     </Box>
   );
@@ -151,7 +171,6 @@ function App() {
   const [streaming, setStreaming] = useState(false);
   const [streamText_, setStreamText] = useState("");
   const [showWelcome, setShowWelcome] = useState(true);
-  const rows = process.stdout.rows || 24;
   useInput((_, key) => {
     if (key.escape || (key.ctrl && _.toLowerCase() === "c")) {
       exit();
@@ -218,7 +237,7 @@ function App() {
   );
 
   return (
-    <Box flexDirection="column" width="100%" height={rows}>
+    <Box flexDirection="column" width="100%">
 
       <Box flexDirection="column" flexGrow={1}>
 
@@ -239,9 +258,9 @@ function App() {
         )}
 
         {/* Messages */}
-        {messages.map((msg, i) => (
-          <MessageView key={i} msg={msg} />
-        ))}
+        <Static items={messages}>
+          {(msg, i) => <MessageView key={i} msg={msg} />}
+        </Static>
 
         {/* Streaming response */}
         {streaming && streamText_ && (
@@ -255,7 +274,7 @@ function App() {
               </Text>
             </Box>
             <Box marginLeft={2} paddingLeft={1} borderStyle="single" borderColor="cyan" borderLeft borderTop={false} borderRight={false} borderBottom={false}>
-              <Text>{streamText_}</Text>
+              <Text>{renderMarkdown(streamText_)}</Text>
             </Box>
           </Box>
         )}
