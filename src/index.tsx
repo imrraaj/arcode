@@ -5,7 +5,8 @@ import { nvidia } from "./provider";
 import z from "zod";
 import { openai } from "@ai-sdk/openai";
 import { tavily } from "@tavily/core";
-const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY,  });
+import { webSearchTool } from "./tools/websearch";
+import { createFileTool, readFileTool, subAgentTool, writeFileTool } from "./tools";
 
 
 const MODEL = "qwen/qwen3.5-122b-a10b";
@@ -173,52 +174,19 @@ function App() {
       try {
         const result = streamText({
           model: nvidia(MODEL),
-          // system: "SYSTEM_PROMPT",
+          system: SYSTEM_PROMPT,
           messages: newMessages.map((m) => ({
             role: m.role as "user" | "assistant",
             content: m.content,
           })),
           stopWhen: stepCountIs(5),
           tools: {
-            web_search: tool({
-              description: "Search the web for current information. Use when the user asks about recent events, news, or anything you don't know.",
-              inputSchema: z.object({
-                query: z.string().describe("The search query"),
-              }),
-              execute: async ({ query }) => {
-                const result = await tvly.search(query, { includeAnswer:"basic", searchDepth:"advanced" });
-                return result.results
-                  .map((r) => `**${r.title}**\n${r.url}\n${r.content}`)
-                  .join("\n\n---\n\n");
-              },
-            }),
-            read_file: tool({
-              description: "Reads the content of a file given its path. Usage: read_file(path: string)",
-              inputSchema: z.object({
-                path: z.string(),
-              }),
-              execute: async ({ path }) => {
-                if (path.includes("..")) {
-                  throw new Error("Access denied");
-                }
-                const fs = await import("fs/promises");
-                const fullPath = `${process.cwd()}/${path}`;
-                return await fs.readFile(fullPath, "utf-8");
-              },
-            }),
-            write_file: tool({
-              description: "Writes content to a file given its path. Usage: write_file(path: string, content: string)",
-              inputSchema: z.object({ path: z.string(), content: z.string() }),
-              execute: async ({ path, content }) => {
-                if (path.includes("..")) {
-                  throw new Error("Access denied");
-                }
-                const fs = await import("fs/promises");
-                const fullPath = `${process.cwd()}/${path}`;
-                await fs.writeFile(fullPath, content, "utf-8");
-                return `File ${path} written successfully.`;
-              },
-            }),
+            web_search: webSearchTool,
+            // read_file: readFileTool,
+            // write_file: writeFileTool,
+            // read_dir: readFileTool,
+            // create_file: createFileTool,
+            subagent: subAgentTool,
           }
         });
 
