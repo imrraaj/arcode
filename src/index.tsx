@@ -6,6 +6,8 @@ import { webSearchTool } from "./tools/websearch";
 import { subAgentTool } from "./tools";
 import { marked } from "marked";
 import TerminalRenderer from "marked-terminal";
+import { discoverSkills, discoverSkillsTool, loadSkillTool, sdbx, SkillMetadata } from "./tools/skill";
+import { grepTool } from "./tools/grep";
 
 const MODEL = "qwen/qwen3.5-122b-a10b";
 
@@ -255,6 +257,13 @@ function App() {
             tools: {
               web_search: webSearchTool,
               subagent: subAgentTool,
+              load_skill: loadSkillTool,
+              discoverSkills: discoverSkillsTool,
+              grep: grepTool,
+            },
+            experimental_context: {
+              sandbox: sdbx,
+              skills: await discoverSkills(sdbx, ['.agents']),
             },
             onFinish: ({ usage }) => {
               setSessionUsage(usage);
