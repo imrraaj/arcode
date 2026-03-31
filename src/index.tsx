@@ -8,6 +8,7 @@ import { marked } from "marked";
 import TerminalRenderer from "marked-terminal";
 import { discoverSkills, discoverSkillsTool, loadSkillTool, sdbx, SkillMetadata } from "./tools/skill";
 import { grepTool } from "./tools/grep";
+import { runCommandTool } from "./tools/command";
 
 const MODEL = "qwen/qwen3.5-122b-a10b";
 
@@ -260,6 +261,7 @@ function App() {
               load_skill: loadSkillTool,
               discoverSkills: discoverSkillsTool,
               grep: grepTool,
+              run_command: runCommandTool
             },
             experimental_context: {
               sandbox: sdbx,
