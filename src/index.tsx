@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { render, Box, Text, useInput, useApp, Static } from "ink";
-import { stepCountIs, streamText } from "ai";
+import { LanguageModelUsage, stepCountIs, streamText } from "ai";
 import { nvidia } from "./provider";
 import { webSearchTool } from "./tools/websearch";
 import { subAgentTool } from "./tools";
@@ -149,10 +149,11 @@ function Spinner({ label }: { label: string }) {
 
 // ─── Status Bar ──────────────────────────────────────────────────────────────
 
-function StatusBar({ model, msgCount }: { model: string; msgCount: number }) {
+function StatusBar({ model, msgCount, sessionUsage }: { model: string; msgCount: number, sessionUsage?: LanguageModelUsage }) {
   const width = process.stdout.columns || 80;
   const left = ` forge v0.1.0 │ ${model}`;
-  const right = `${msgCount} messages │ ctrl+c to exit `;
+
+  const right = `${msgCount} messages| Usage: ${sessionUsage ? ` ${sessionUsage.totalTokens} tokens` : "N/A"}`;
   const gap = Math.max(0, width - left.length - right.length);
 
   return (
@@ -171,6 +172,7 @@ function App() {
   const [streaming, setStreaming] = useState(false);
   const [streamText_, setStreamText] = useState("");
   const [showWelcome, setShowWelcome] = useState(true);
+  const [sessionUsage, setSessionUsage] = useState<LanguageModelUsage>();
   useInput((_, key) => {
     if (key.escape || (key.ctrl && _.toLowerCase() === "c")) {
       exit();
@@ -206,6 +208,9 @@ function App() {
             // read_dir: readFileTool,
             // create_file: createFileTool,
             subagent: subAgentTool,
+          },
+          onFinish: ({ usage }) => {
+            setSessionUsage(usage);
           }
         });
 
@@ -295,7 +300,7 @@ function App() {
         </Box>
       </Box>
 
-      <StatusBar model={MODEL} msgCount={messages.length} />
+      <StatusBar model={MODEL} msgCount={messages.length} sessionUsage={sessionUsage} />
     </Box>
   );
 }
