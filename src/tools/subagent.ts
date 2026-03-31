@@ -12,6 +12,7 @@ export const subAgentTool = tool({
         prompt: z.string().describe('Prompt to run the sub-agent with'),
         model: z.string().optional().describe('Optional model override for the sub-agent'),
     }),
+    needsApproval: true,
     execute: async ({ model, prompt }, { abortSignal }) => {
         const selectedModel = model?.trim() ? model.trim() : DEFAULT_SUBAGENT_MODEL;
         const agent = new ToolLoopAgent({

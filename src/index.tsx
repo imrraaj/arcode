@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { render, Box, Text, useInput, useApp, Static } from "ink";
-import { LanguageModelUsage, stepCountIs, streamText } from "ai";
+import { LanguageModelUsage, ToolApprovalResponse, stepCountIs, streamText } from "ai";
 import { nvidia } from "./provider";
 import { webSearchTool } from "./tools/websearch";
 import { subAgentTool } from "./tools";
@@ -165,6 +165,38 @@ function StatusBar({ model, msgCount, sessionUsage }: { model: string; msgCount:
   );
 }
 
+function ApprovalPrompt({
+  toolName,
+  args,
+  onRespond,
+}: {
+  toolName: string;
+  args: any;
+  onRespond: (approved: boolean) => void;
+}) {
+  useInput((input) => {
+    if (input.toLowerCase() === "y") onRespond(true);
+    if (input.toLowerCase() === "n") onRespond(false);
+  });
+
+  return (
+    <Box flexDirection="column" marginTop={1} marginLeft={2}>
+      <Box>
+        <Text color="yellow">⚠ Tool approval needed: </Text>
+        <Text bold color="white">{toolName}</Text>
+      </Box>
+      <Box marginLeft={2}>
+        <Text dimColor>{JSON.stringify(args, null, 2)}</Text>
+      </Box>
+      <Box marginTop={0}>
+        <Text color="yellow">  Allow? </Text>
+        <Text bold color="green">[y] </Text>
+        <Text bold color="red">[n] </Text>
+      </Box>
+    </Box>
+  );
+}
+
 function App() {
   const { exit } = useApp();
   const [input, setInput] = useState("");
@@ -173,6 +205,21 @@ function App() {
   const [streamText_, setStreamText] = useState("");
   const [showWelcome, setShowWelcome] = useState(true);
   const [sessionUsage, setSessionUsage] = useState<LanguageModelUsage>();
+
+
+  const [pendingApproval, setPendingApproval] = useState<{
+    toolName: string;
+    args: Record<string, any>;
+    resolve: (approved: boolean) => void;
+  } | null>(null);
+
+  const askUserApproval = (toolName: string, args: any): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setPendingApproval({ toolName, args, resolve });
+    });
+  };
+
+
   useInput((_, key) => {
     if (key.escape || (key.ctrl && _.toLowerCase() === "c")) {
       exit();
@@ -192,40 +239,76 @@ function App() {
       setStreaming(true);
       setStreamText("");
 
+      // model-level conversation; typed as any[] to accommodate tool/approval messages
+      let modelConversation: any[] = newMessages.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+
       try {
-        const result = streamText({
-          model: nvidia(MODEL),
-          system: SYSTEM_PROMPT,
-          messages: newMessages.map((m) => ({
-            role: m.role as "user" | "assistant",
-            content: m.content,
-          })),
-          stopWhen: stepCountIs(5),
-          tools: {
-            web_search: webSearchTool,
-            // read_file: readFileTool,
-            // write_file: writeFileTool,
-            // read_dir: readFileTool,
-            // create_file: createFileTool,
-            subagent: subAgentTool,
-          },
-          onFinish: ({ usage }) => {
-            setSessionUsage(usage);
+        while (true) {
+          const result = streamText({
+            model: nvidia(MODEL),
+            system: SYSTEM_PROMPT,
+            messages: modelConversation,
+            stopWhen: stepCountIs(5),
+            tools: {
+              web_search: webSearchTool,
+              subagent: subAgentTool,
+            },
+            onFinish: ({ usage }) => {
+              setSessionUsage(usage);
+            },
+          });
+
+          let fullText = "";
+          for await (const chunk of result.textStream) {
+            fullText += chunk;
+            setStreamText(fullText);
           }
-        });
 
-        let fullText = "";
+          const [content, response] = await Promise.all([
+            result.content,
+            result.response,
+          ]);
 
-        for await (const chunk of (await result).textStream) {
-          fullText += chunk;
-          setStreamText(fullText);
+          const approvalRequests = content.filter(
+            (p) => p.type === "tool-approval-request"
+          );
+
+          if (approvalRequests.length === 0) {
+            // No pending approvals — we're done
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: fullText },
+            ]);
+            setStreamText("");
+            break;
+          }
+
+          // Clear streamed output while waiting for user decision
+          setStreamText("");
+
+          // Collect approval/denial for every pending tool call
+          const approvals: ToolApprovalResponse[] = [];
+          for (const req of approvalRequests) {
+            const r = req as any;
+            const approved = await askUserApproval(r.toolCall.toolName, r.toolCall.input);
+            approvals.push({
+              type: "tool-approval-response",
+              approvalId: r.approvalId,
+              approved,
+            });
+          }
+
+          // Append the model's response messages + the approval answers,
+          // then loop → the model will execute approved tools and continue.
+          modelConversation = [
+            ...modelConversation,
+            ...(response.messages as any[]),
+            { role: "tool", content: approvals },
+          ];
         }
-
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: fullText },
-        ]);
-        setStreamText("");
       } catch (err: any) {
         setMessages((prev) => [
           ...prev,
@@ -298,6 +381,17 @@ function App() {
             />
           )}
         </Box>
+
+        {pendingApproval && (
+          <ApprovalPrompt
+            toolName={pendingApproval.toolName}
+            args={pendingApproval.args}
+            onRespond={(approved) => {
+              pendingApproval.resolve(approved);
+              setPendingApproval(null);
+            }}
+          />
+        )}
       </Box>
 
       <StatusBar model={MODEL} msgCount={messages.length} sessionUsage={sessionUsage} />

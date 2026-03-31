@@ -7,6 +7,7 @@ export const webSearchTool = tool({
     inputSchema: z.object({
         query: z.string().describe("The search query"),
     }),
+    needsApproval: true,
     execute: async ({ query }) => {
         const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY, });
         const result = await tvly.search(query, { includeAnswer: "basic", searchDepth: "advanced" });
