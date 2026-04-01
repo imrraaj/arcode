@@ -45,7 +45,6 @@ export async function discoverSkills(
             try {
                 const content = await sandbox.readFile(skillFile);
                 const frontmatter = parseFrontmatter(content);
-                console.log(`Found skill: ${frontmatter.name} at ${skillFile}`);
 
                 if (!seenNames.has(frontmatter.name)) {
                     seenNames.add(frontmatter.name);
