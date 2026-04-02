@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef } from "react";
 import { Box, Text, useInput, useStdin } from "ink";
 import { theme } from "../theme";
 
+function isMouseWheelSequence(input: string): boolean {
+  return /^\x1b\[<\d+;\d+;\d+[Mm]$/.test(input);
+}
+
 function previousWordBoundary(value: string, cursor: number) {
   let index = cursor;
   while (index > 0 && value[index - 1] === " ") index -= 1;
@@ -58,6 +62,10 @@ export function InputBox({
 
   useInput(
     (input, key) => {
+      if (isMouseWheelSequence(input)) {
+        return;
+      }
+
       if (key.meta && input === "b") {
         onChange(value, previousWordBoundary(value, cursor));
         return;
@@ -143,7 +151,7 @@ export function InputBox({
   const afterCursor = value.slice(cursor + 1);
 
   return (
-    <Box backgroundColor={theme.bg} padding={1} marginTop={1} borderLeftColor={theme.cyan}>
+    <Box >
       <Text color={theme.purple} bold>
         ❯{" "}
       </Text>

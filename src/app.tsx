@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { LanguageModelUsage, ToolApprovalResponse, stepCountIs, streamText } from "ai";
 import { nvidia } from "./provider";
 import { webSearchTool } from "./tools/websearch";
@@ -9,13 +9,15 @@ import { grepTool } from "./tools/grep";
 import { runCommandTool } from "./tools/command";
 import { theme } from "./theme";
 
-import { Message, MessageView, renderMarkdown } from "./ui/MessageView";
+import { Message } from "./ui/MessageView";
+import { ScrollableMessageList } from "./ui/ScrollableMessageList";
 import { Spinner } from "./ui/Spinner";
 import { StatusBar } from "./ui/StatusBar";
 import { InputBox } from "./ui/InputBox";
 import { ApprovalPrompt } from "./ui/ApprovalPrompt";
 import { CommandPalette } from "./ui/CommandPalette";
 import { WelcomeScreen } from "./ui/WelcomeScreen";
+import { useMouseWheel } from "./hooks/useMouseWheel";
 import { config } from "./utils/config";
 
 
@@ -80,6 +82,25 @@ export function App() {
       }
     },
     { isActive: !showPalette && !pendingApproval }
+  );
+
+  // Mouse wheel scrolling for messages
+  // Wheel up = scroll up = show older messages = increase offset
+  // Wheel down = scroll down = show newer messages = decrease offset
+  useMouseWheel(
+    {
+      onScrollUp: () => {
+        if (!showPalette && !pendingApproval) {
+          setMessageScrollOffset((prev) => Math.min(messages.length, prev + 3));
+        }
+      },
+      onScrollDown: () => {
+        if (!showPalette && !pendingApproval) {
+          setMessageScrollOffset((prev) => Math.max(0, prev - 3));
+        }
+      },
+    },
+    !showPalette && !pendingApproval
   );
 
   useEffect(() => {
@@ -175,56 +196,47 @@ export function App() {
   const reservedRows = (showWelcome && messages.length === 0) ? 13 : 5;
   const availableRows = Math.max(5, rows - reservedRows);
 
-  const visibleMessages = useMemo(() => {
-    const end = Math.max(0, messages.length - messageScrollOffset);
-    // Walk backwards from `end`, accumulating estimated row heights
-    let rowBudget = availableRows;
-    let start = end;
-    for (let i = end - 1; i >= 0; i--) {
-      const msg = messages[i];
-      const rendered = msg.role === "assistant" ? renderMarkdown(msg.content) : msg.content;
-      const lineCount = rendered.split("\n").length;
-      // Each message: 1 (marginTop) + 2 (paddingY) + lineCount
-      const msgHeight = 1 + 2 + lineCount;
-      if (rowBudget - msgHeight < 0 && start < end) break;
-      rowBudget -= msgHeight;
-      start = i;
-    }
-    return messages.slice(start, end);
-  }, [messageScrollOffset, messages, availableRows]);
+  const streamingMessage = streaming && streamText_
+    ? { role: "assistant" as const, content: streamText_ }
+    : undefined;
 
   return (
-    <Box flexDirection="column" width={cols} height={rows} backgroundColor={theme.bgDark} padding={1}>
-      <Box flexDirection="column" flexGrow={1} overflow="hidden" backgroundColor={theme.bgDark}>
+    <Box width={cols} height={rows} backgroundColor={theme.bgDark}>
+      <Box flexDirection="column" width={"80%"} padding={1} flexGrow={1} overflow="hidden" backgroundColor={theme.bgDark}>
         {showWelcome && messages.length === 0 && <WelcomeScreen />}
 
-        <Box flexDirection="column" flexGrow={1} overflow="hidden" backgroundColor={theme.bgDark}>
-          {visibleMessages.map((msg, i) => (
-            <MessageView key={`${i}-${msg.role}-${msg.content.slice(0, 16)}`} msg={msg} />
-          ))}
-          {streaming && streamText_ && (
-            <MessageView msg={{ role: "assistant", content: streamText_ }} />
-          )}
+        {messages.length > 0 && (
+          <ScrollableMessageList
+            messages={messages}
+            scrollOffset={messageScrollOffset}
+            maxHeight={availableRows}
+            width={cols - 2}
+            streamingMessage={streamingMessage}
+          />
+        )}
+
+        <Box flexDirection="column" gap={0} backgroundColor={theme.bg} padding={1} marginTop={1} borderLeftColor={theme.cyan}>
+          <InputBox
+            value={input}
+            cursor={cursor}
+            onChange={(nextValue, nextCursor) => {
+              setInput(nextValue);
+              setCursor(nextCursor);
+            }}
+            onSubmit={handleSubmit}
+            onCommandPalette={() => setShowPalette(true)}
+            placeholder="Ask anything...  [ctrl+k] commands"
+            isActive={isInputActive}
+          />
+
+          {streaming && <Spinner label="Generating..." />}
+          {!streaming && <Text dimColor>Waiting...</Text>}
         </Box>
+
       </Box>
 
-      {!showPalette && !pendingApproval && (
-        <InputBox
-          value={input}
-          cursor={cursor}
-          onChange={(nextValue, nextCursor) => {
-            setInput(nextValue);
-            setCursor(nextCursor);
-          }}
-          onSubmit={handleSubmit}
-          onCommandPalette={() => setShowPalette(true)}
-          placeholder="Ask anything...  [ctrl+k] commands"
-          isActive={isInputActive}
-        />
-      )}
 
-      <Box marginTop={1} flexDirection="column" gap={1}>
-        {streaming && !streamText_ && <Spinner label="Generating..." />}
+      <Box width={"20%"} height={"100%"} backgroundColor={theme.bg} paddingX={2} paddingY={1}>
         <StatusBar
           model={selectedModel}
           msgCount={messages.length}
