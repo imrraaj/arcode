@@ -45,7 +45,7 @@ export function useMouseWheel({ onScrollUp, onScrollDown }: MouseWheelHandler, i
       while (buffer.length > 0) {
         // SGR mouse mode: ESC[ < button ; x ; y M
         // Wheel up: button=64, Wheel down: button=65
-        const sgrMatch = buffer.match(/^\x1b\[<(\d+);(\d+);(\d+)M/);
+        const sgrMatch = buffer.match(/^\x1b?\[<(\d+);(\d+);(\d+)[Mm]/);
         if (sgrMatch) {
           const button = parseInt(sgrMatch[1], 10);
 
@@ -91,7 +91,7 @@ export function useMouseWheel({ onScrollUp, onScrollDown }: MouseWheelHandler, i
         }
 
         // Skip regular ANSI escape sequences (cursor keys, etc)
-        const ansiMatch = buffer.match(/^\x1b(?:\[([0-9;]*)([A-Za-z])|\[([<])([^M])|O([A-Z])|(\))[0-9A-Za-z])/);
+        const ansiMatch = buffer.match(/^\x1b(?:\[([0-9;]*)([A-Za-z])|O([A-Z])|(\))[0-9A-Za-z])/);
         if (ansiMatch) {
           buffer = buffer.slice(ansiMatch[0].length);
           continue;

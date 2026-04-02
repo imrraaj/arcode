@@ -38,7 +38,7 @@ export function MessageView({ msg }: { msg: Message }) {
       <Box marginTop={1} flexDirection="column">
         <Box
           backgroundColor={theme.bg}
-          borderStyle="single"
+          borderStyle="bold"
           borderLeft
           borderTop={false}
           borderRight={false}

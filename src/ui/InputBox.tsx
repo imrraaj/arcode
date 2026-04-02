@@ -3,7 +3,7 @@ import { Box, Text, useInput, useStdin } from "ink";
 import { theme } from "../theme";
 
 function isMouseWheelSequence(input: string): boolean {
-  return /^\x1b\[<\d+;\d+;\d+[Mm]$/.test(input);
+  return /^\x1b?\[<\d+;\d+;\d+[Mm]/.test(input);
 }
 
 function previousWordBoundary(value: string, cursor: number) {
