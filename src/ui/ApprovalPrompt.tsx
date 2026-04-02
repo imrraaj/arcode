@@ -32,10 +32,21 @@ export function ApprovalPrompt({
     { isActive }
   );
 
+  const argsDisplay = JSON.stringify(args, null, 2);
+  const truncatedArgs = argsDisplay.length > 200 
+    ? argsDisplay.slice(0, 200) + "..." 
+    : argsDisplay;
+
   return (
-    <Box borderStyle="round" borderColor={theme.yellow} flexDirection="column" width={80} paddingY={1}>
+    <Box
+      padding={1}
+      backgroundColor={theme.bg}
+      borderColor={theme.yellow}
+      flexDirection="column"
+      width={80}
+    >
       <Box paddingX={1}>
-        <Text color={theme.yellow}>⚠ Tool approval needed</Text>
+        <Text color={theme.yellow} bold>⚠ Tool approval needed</Text>
       </Box>
       <Box paddingX={1} marginTop={1}>
         <Text color={theme.fg} bold>
@@ -43,18 +54,24 @@ export function ApprovalPrompt({
         </Text>
       </Box>
       <Box paddingX={1} marginTop={1}>
-        <Text color={theme.comment}>{JSON.stringify(args, null, 2)}</Text>
+        <Text color={theme.comment}>{truncatedArgs}</Text>
       </Box>
       <Box flexDirection="column" marginTop={1} paddingX={1}>
-        <Text color={selectedOption === 0 ? theme.green : theme.comment} bold={selectedOption === 0}>
-          {selectedOption === 0 ? "> YES" : "  YES"}
-        </Text>
-        <Text color={selectedOption === 1 ? theme.red : theme.comment} bold={selectedOption === 1}>
-          {selectedOption === 1 ? "> NO" : "  NO"}
-        </Text>
+        <Box backgroundColor={selectedOption === 0 ? theme.selection : undefined}>
+          <Text color={selectedOption === 0 ? theme.green : theme.comment} bold={selectedOption === 0}>
+            {selectedOption === 0 ? "▸ " : "  "}
+            YES - Approve this tool call
+          </Text>
+        </Box>
+        <Box backgroundColor={selectedOption === 1 ? theme.selection : undefined}>
+          <Text color={selectedOption === 1 ? theme.red : theme.comment} bold={selectedOption === 1}>
+            {selectedOption === 1 ? "▸ " : "  "}
+            NO - Deny this tool call
+          </Text>
+        </Box>
       </Box>
       <Box marginTop={1} paddingX={1}>
-        <Text color={theme.comment}>[↑↓] select  [enter] confirm  [esc] deny</Text>
+        <Text color={theme.comment}>[↑↓] select [enter] confirm [esc] deny</Text>
       </Box>
     </Box>
   );

@@ -49,6 +49,7 @@ export function App() {
   const [streamText_, setStreamText] = useState("");
   const [showWelcome, setShowWelcome] = useState(true);
   const [sessionUsage, setSessionUsage] = useState<LanguageModelUsage>();
+  const [cumulativeTokens, setCumulativeTokens] = useState<{ input: number; output: number; total: number }>({ input: 0, output: 0, total: 0 });
   const [selectedModel, setSelectedModel] = useState(config.defaultModel);
   const [showPalette, setShowPalette] = useState(false);
   const [messageScrollOffset, setMessageScrollOffset] = useState(0);
@@ -242,7 +243,14 @@ export function App() {
               sandbox: sdbx,
               skills: await discoverSkills(sdbx, [".agents"]),
             },
-            onFinish: ({ usage }) => setSessionUsage(usage),
+            onFinish: ({ usage }) => {
+              setSessionUsage(usage);
+              setCumulativeTokens((prev) => ({
+                input: prev.input + (usage?.inputTokens ?? 0),
+                output: prev.output + (usage?.outputTokens ?? 0),
+                total: prev.total + (usage?.totalTokens ?? 0),
+              }));
+            },
           });
 
           let fullText = "";
@@ -338,7 +346,7 @@ export function App() {
         height={"100%"}
         backgroundColor={theme.bgDark}
       >
-        {showWelcome && messages.length === 0 && <WelcomeScreen />}
+        {showWelcome && messages.length === 0 && <Box height={"100%"}><WelcomeScreen /></Box>}
 
         {messages.length > 0 && (
           <Box paddingX={1}>
@@ -387,11 +395,11 @@ export function App() {
         paddingX={2}
         paddingY={1}
       >
-        <StatusBar
-          model={selectedModel}
-          msgCount={messages.length}
-          sessionUsage={sessionUsage}
-        />
+          <StatusBar
+            model={selectedModel}
+            msgCount={messages.length}
+            cumulativeTokens={cumulativeTokens}
+          />
       </Box>
 
       {showPalette && (

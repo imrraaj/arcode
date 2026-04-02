@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-import { LanguageModelUsage } from "ai";
 import { Box, Text, useStdout } from "ink";
 import { theme } from "../theme";
 
@@ -14,15 +12,14 @@ function ctxColor(pct: number) {
 export function StatusBar({
   model,
   msgCount,
-  sessionUsage,
+  cumulativeTokens,
 }: {
   model: string;
   msgCount: number;
-  sessionUsage?: LanguageModelUsage;
+  cumulativeTokens: { input: number; output: number; total: number };
 }) {
-  const completionTokens = sessionUsage?.outputTokens ?? 0;
-  const totalTokens = sessionUsage?.totalTokens ?? 0;
-  const ctxPct = Math.round((totalTokens / MODEL_CONTEXT_WINDOW) * 100);
+  const totalTokens = cumulativeTokens.total;
+  const ctxPct = Math.min(100, Math.round((totalTokens / MODEL_CONTEXT_WINDOW) * 100));
 
   return (
     <Box flexDirection="column" justifyContent="space-between" gap={1} backgroundColor={theme.bg} height={"100%"}>
@@ -34,7 +31,7 @@ export function StatusBar({
 
         <Box gap={0} marginY={2} flexDirection="column">
           <Text bold>Context</Text>
-          <Text color={theme.comment}>{completionTokens} tokens</Text>
+          <Text color={theme.comment}>{totalTokens} tokens</Text>
           <Text color={ctxColor(ctxPct)}>{ctxPct}% used</Text>
         </Box>
       </Box>
