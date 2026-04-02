@@ -29,6 +29,15 @@ import { CommandPalette } from "./ui/CommandPalette";
 import { WelcomeScreen } from "./ui/WelcomeScreen";
 import { useMouseWheel } from "./hooks/useMouseWheel";
 import { config } from "./utils/config";
+import {
+  prepareMessages,
+  compactMemoryTool,
+  calculateTotalTokens,
+  shouldCompact,
+  DEFAULT_MEMORY_CONFIG,
+  loadStoredMemory,
+  estimateTokens,
+} from "./context/memory";
 
 export function App() {
   const { exit } = useApp();
@@ -44,6 +53,8 @@ export function App() {
   const [showPalette, setShowPalette] = useState(false);
   const [messageScrollOffset, setMessageScrollOffset] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [conversationSummary, setConversationSummary] = useState<string>("");
+  const [isCompacting, setIsCompacting] = useState(false);
 
   const [pendingApproval, setPendingApproval] = useState<{
     toolName: string;
@@ -59,10 +70,10 @@ export function App() {
   useInput(
     (_, key) => {
       if (key.escape && !showPalette && !pendingApproval) {
-        if (streaming && abortControllerRef.current) {
+        if ((streaming || isCompacting) && abortControllerRef.current) {
           abortControllerRef.current.abort();
           abortControllerRef.current = null;
-        } else if (!streaming) {
+        } else if (!streaming && !isCompacting) {
           exit();
         }
         return;
@@ -104,6 +115,15 @@ export function App() {
     { isActive: !showPalette && !pendingApproval },
   );
 
+  // Load stored memory on startup
+  useEffect(() => {
+    loadStoredMemory().then((stored) => {
+      if (stored?.summary) {
+        setConversationSummary(stored.summary);
+      }
+    });
+  }, []);
+
   // Mouse wheel scrolling for messages
   // Wheel up = scroll up = show older messages = increase offset
   // Wheel down = scroll down = show newer messages = decrease offset
@@ -131,7 +151,7 @@ export function App() {
 
   const handleSubmit = useCallback(
     async (prompt: string) => {
-      if (!prompt.trim() || streaming) return;
+      if (!prompt.trim() || streaming || isCompacting) return;
 
       setShowWelcome(false);
       const userMsg: Message = { role: "user", content: prompt.trim() };
@@ -144,17 +164,69 @@ export function App() {
 
       abortControllerRef.current = new AbortController();
 
-      let modelConversation: any[] = newMessages.map((m) => ({
+      // Memory management: Check if compaction is needed
+      const totalTokens = calculateTotalTokens(messages) + estimateTokens(prompt);
+      const needsCompaction = shouldCompact(messages, DEFAULT_MEMORY_CONFIG, prompt);
+
+      let messagesToSend: any[] = newMessages.map((m) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
       }));
+
+      // Add summary from previous session if exists
+      if (conversationSummary) {
+        messagesToSend = [
+          { role: "system", content: `[Earlier Conversation Summary]: ${conversationSummary}` },
+          ...messagesToSend,
+        ];
+      }
+
+      // If near context limit, compact memory
+      if (needsCompaction) {
+        setIsCompacting(true);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: "Compacting memory..." },
+        ]);
+
+        try {
+          const prepared = await prepareMessages(
+            messages,
+            DEFAULT_MEMORY_CONFIG,
+            nvidia(selectedModel),
+            abortControllerRef.current.signal
+          );
+
+          messagesToSend = prepared.messages.map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: m.content,
+          }));
+
+          if (prepared.summary) {
+            setConversationSummary(prepared.summary);
+          }
+
+          // Remove the "Compacting..." message and replace with result
+          setMessages((prev) => prev.slice(0, -1));
+        } catch (err: any) {
+          // If abort, don't update messages
+          if (err?.name === "AbortError") {
+            setIsCompacting(false);
+            return;
+          }
+          // On error, continue with full messages
+          console.error("Memory compaction failed:", err);
+        } finally {
+          setIsCompacting(false);
+        }
+      }
 
       try {
         while (true) {
           const result = streamText({
             model: nvidia(selectedModel),
             system: config.systemPrompt,
-            messages: modelConversation,
+            messages: messagesToSend,
             stopWhen: stepCountIs(5),
             abortSignal: abortControllerRef.current?.signal,
             tools: {
@@ -164,6 +236,7 @@ export function App() {
               discoverSkills: discoverSkillsTool,
               grep: grepTool,
               run_command: runCommandTool,
+              compact_memory: compactMemoryTool,
             },
             experimental_context: {
               sandbox: sdbx,
@@ -211,8 +284,8 @@ export function App() {
             });
           }
 
-          modelConversation = [
-            ...modelConversation,
+          messagesToSend = [
+            ...messagesToSend,
             ...(response.messages as any[]),
             { role: "tool", content: approvals },
           ];
@@ -220,7 +293,7 @@ export function App() {
       } catch (err: any) {
         const isAbortError = err?.name === "AbortError" || 
           err?.message?.includes("abort") ||
-          (err?.cause && (err.cause as any)?.name === "AbortError");
+          (err?.cause && (err?.cause as any)?.name === "AbortError");
         
         if (isAbortError) {
           setMessages((prev) => [
@@ -242,7 +315,7 @@ export function App() {
         abortControllerRef.current = null;
       }
     },
-    [messages, selectedModel, streaming],
+    [messages, selectedModel, streaming, conversationSummary, isCompacting],
   );
 
   const isInputActive = !showPalette && !pendingApproval;

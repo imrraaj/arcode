@@ -13,6 +13,8 @@ const MODELS = [
   "qwen/qwen3.5-122b-a10b",
   "meta/llama-3.1-70b-instruct",
   "mistralai/mixtral-8x7b-instruct-v0.1",
+  "mistralai/devstral-2-123b-instruct-2512",
+  
 ];
 
 export function CommandPalette({
