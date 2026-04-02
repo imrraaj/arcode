@@ -27,6 +27,7 @@ import { InputBox } from "./ui/InputBox";
 import { ApprovalPrompt } from "./ui/ApprovalPrompt";
 import { CommandPalette } from "./ui/CommandPalette";
 import { WelcomeScreen } from "./ui/WelcomeScreen";
+import { ToolCallView, type ToolCall } from "./ui/ToolCallView";
 import { useMouseWheel } from "./hooks/useMouseWheel";
 import { config } from "./utils/config";
 import {
@@ -56,6 +57,7 @@ export function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [conversationSummary, setConversationSummary] = useState<string>("");
   const [isCompacting, setIsCompacting] = useState(false);
+  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
 
   const [pendingApproval, setPendingApproval] = useState<{
     toolName: string;
@@ -162,6 +164,9 @@ export function App() {
       setCursor(0);
       setStreaming(true);
       setStreamText("");
+      
+      // Clear old tool calls when starting a new message
+      setToolCalls([]);
 
       abortControllerRef.current = new AbortController();
 
@@ -263,52 +268,114 @@ export function App() {
             result.content,
             result.response,
           ]);
-          const approvalRequests = content.filter(
-            (p) => p.type === "tool-approval-request",
+        const approvalRequests = content.filter(
+          (p) => p.type === "tool-approval-request",
+        );
+
+        if (approvalRequests.length === 0) {
+          const newIndex = messages.length;
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: fullText },
+          ]);
+          // Associate pending tool calls with this message
+          setToolCalls((prev) =>
+            prev.map((tc) =>
+              tc.assistantMessageIndex === -1
+                ? { ...tc, assistantMessageIndex: newIndex }
+                : tc
+            )
+          );
+          setStreamText("");
+          break;
+        }
+
+        setStreamText("");
+
+        // Add pending tool calls to UI
+        const pendingToolCalls: ToolCall[] = approvalRequests.map((req) => {
+          const r = req as any;
+          return {
+            id: r.approvalId,
+            assistantMessageIndex: -1, // Will be set when assistant message is added
+            name: r.toolCall.toolName,
+            args: r.toolCall.input,
+            status: "pending" as const,
+            timestamp: new Date(),
+          };
+        });
+        setToolCalls((prev) => [...prev, ...pendingToolCalls]);
+
+        const approvals: ToolApprovalResponse[] = [];
+        for (const req of approvalRequests) {
+          const r = req as any;
+          
+          // Update tool call status to approved/denied
+          const approved = await askUserApproval(
+            r.toolCall.toolName,
+            r.toolCall.input,
+          );
+          
+          // Update tool call status in state
+          setToolCalls((prev) =>
+            prev.map((tc) =>
+              tc.id === r.approvalId
+                ? { ...tc, status: approved ? "approved" : "denied" }
+                : tc
+            )
           );
 
-          if (approvalRequests.length === 0) {
-            setMessages((prev) => [
-              ...prev,
-              { role: "assistant", content: fullText },
-            ]);
-            setStreamText("");
-            break;
-          }
-
-          setStreamText("");
-
-          const approvals: ToolApprovalResponse[] = [];
-          for (const req of approvalRequests) {
-            const r = req as any;
-            const approved = await askUserApproval(
-              r.toolCall.toolName,
-              r.toolCall.input,
+          // If approved, mark as running
+          if (approved) {
+            setToolCalls((prev) =>
+              prev.map((tc) =>
+                tc.id === r.approvalId
+                  ? { ...tc, status: "running" as const }
+                  : tc
+              )
             );
-            approvals.push({
-              type: "tool-approval-response",
-              approvalId: r.approvalId,
-              approved,
-            });
           }
 
-          messagesToSend = [
-            ...messagesToSend,
-            ...(response.messages as any[]),
-            { role: "tool", content: approvals },
-          ];
+          approvals.push({
+            type: "tool-approval-response",
+            approvalId: r.approvalId,
+            approved,
+          });
         }
-      } catch (err: any) {
+
+        messagesToSend = [
+          ...messagesToSend,
+          ...(response.messages as any[]),
+          { role: "tool", content: approvals },
+        ];
+        
+        // Mark all running tool calls as completed after the loop iteration
+        setToolCalls((prev) =>
+          prev.map((tc) =>
+            tc.status === "running" ? { ...tc, status: "completed" } : tc
+          )
+        );
+      }
+        } catch (err: any) {
         const isAbortError = err?.name === "AbortError" || 
           err?.message?.includes("abort") ||
           (err?.cause && (err?.cause as any)?.name === "AbortError");
         
         if (isAbortError) {
+          const newIndex = messages.length;
           setMessages((prev) => [
             ...prev,
             { role: "assistant", content: "Generation cancelled." },
           ]);
+          setToolCalls((prev) =>
+            prev.map((tc) =>
+              tc.assistantMessageIndex === -1
+                ? { ...tc, assistantMessageIndex: newIndex }
+                : tc
+            )
+          );
         } else {
+          const newIndex = messages.length;
           setMessages((prev) => [
             ...prev,
             {
@@ -316,6 +383,13 @@ export function App() {
               content: `Error: ${err?.message || "Failed to reach LLM"}`,
             },
           ]);
+          setToolCalls((prev) =>
+            prev.map((tc) =>
+              tc.assistantMessageIndex === -1
+                ? { ...tc, assistantMessageIndex: newIndex }
+                : tc
+            )
+          );
         }
       } finally {
         setStreaming(false);
@@ -352,6 +426,7 @@ export function App() {
           <Box paddingX={1}>
             <ScrollableMessageList
               messages={messages}
+              toolCalls={toolCalls}
               scrollOffset={messageScrollOffset}
               maxHeight={availableRows}
               width={cols - 2}
