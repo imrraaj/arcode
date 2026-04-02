@@ -107,7 +107,7 @@ export function CommandPalette({
   });
 
   return (
-    <Box borderStyle="round" backgroundColor={theme.bgDark} borderColor={theme.blue} flexDirection="column" width={80}>
+    <Box padding={1} backgroundColor={theme.bg} borderColor={theme.comment} flexDirection="column" width={80}>
       <Box paddingX={1}>
         <Text color={theme.fg} bold>
           Commands

@@ -151,7 +151,7 @@ export function InputBox({
   const afterCursor = value.slice(cursor + 1);
 
   return (
-    <Box >
+    <Box>
       <Text color={theme.purple} bold>
         ❯{" "}
       </Text>
