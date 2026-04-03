@@ -70,8 +70,8 @@ export function App() {
   const rows = termHeight || 24;
   const sidebarWidth = Math.max(25, Math.floor(cols * 0.2));
   const mainWidth = cols - sidebarWidth;
-  const reservedRows = showWelcome && messages.length === 0 ? 13 : 7;
-  const availableRows = Math.max(5, rows - reservedRows);
+  const reservedRows = showWelcome && messages.length === 0 ? 13 : 6;
+  const availableRows = Math.max(7, rows - reservedRows);
 
   // Tool approval helper
   const askUserApproval = useCallback(
@@ -433,7 +433,7 @@ export function App() {
           <box width="100%" flexGrow={1} paddingX={1} paddingY={1}>
             <scrollbox
               width={mainWidth - 2}
-              height={availableRows - 1}
+              height={availableRows}
               scrollY={true}
               stickyScroll={true}
               stickyStart="bottom"
@@ -469,12 +469,17 @@ export function App() {
         )}
 
         <box
-          width="100%"
+          // width="100%"
+          width={mainWidth -2 }
           flexDirection="column"
           backgroundColor={colors.bg}
-          padding={2}
+          paddingX={2}
+          marginX={1}
+          border={["left"]}
+          borderStyle="heavy"
+          borderColor={theme.purple}
         >
-          <box width="100%" flexDirection="row" justifyContent="center" alignItems="center">
+          <box width="100%" flexDirection="row" height={3} justifyContent="center" alignItems="center">
             <text>
               <strong fg={theme.purple}>❯ </strong>
             </text>
@@ -494,7 +499,7 @@ export function App() {
           <box width="100%" flexDirection="row" gap={1}>
             <text><strong fg={theme.blue}>{selectedModel}</strong></text>
             {streaming && (
-              <text fg={theme.yellow}>⏳ Generating...</text>
+              <text fg={theme.comment}>⏳ Generating...</text>
             )}
           </box>
         </box>
