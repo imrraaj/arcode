@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
+import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
+import { Box, Text } from "@opentui/core";
 import {
   LanguageModelUsage,
   ToolApprovalResponse,
@@ -17,19 +18,15 @@ import {
 } from "./tools/skill";
 import { grepTool } from "./tools/grep";
 import { runCommandTool } from "./tools/command";
-import { theme } from "./theme";
-
-import { Message } from "./ui/MessageView";
-import { ScrollableMessageList } from "./ui/ScrollableMessageList";
-import { Spinner } from "./ui/Spinner";
-import { StatusBar } from "./ui/StatusBar";
-import { InputBox } from "./ui/InputBox";
-import { ApprovalPrompt } from "./ui/ApprovalPrompt";
-import { CommandPalette } from "./ui/CommandPalette";
-import { WelcomeScreen } from "./ui/WelcomeScreen";
-import { ToolCallView, type ToolCall } from "./ui/ToolCallView";
-import { useMouseWheel } from "./hooks/useMouseWheel";
+import { theme, colors } from "./theme";
+import { MessageView, SimpleMessageView } from "./components/MessageView";
+import { ToolCallView } from "./components/ToolCallView";
+import { StatusBar } from "./components/StatusBar";
+import { CommandPalette } from "./components/CommandPalette";
+import { ApprovalPrompt } from "./components/ApprovalPrompt";
+import { WelcomeScreen } from "./components/WelcomeScreen";
 import { config } from "./utils/config";
+import { saveSession, loadSession, clearSession } from "./utils/persistence";
 import {
   prepareMessages,
   compactMemoryTool,
@@ -39,119 +36,136 @@ import {
   loadStoredMemory,
   estimateTokens,
 } from "./context/memory";
+import type { Message, ToolCall, PendingApproval } from "./types";
 
 export function App() {
-  const { exit } = useApp();
-  const { stdout } = useStdout();
+  const renderer = useRenderer();
+  const { width: termWidth, height: termHeight } = useTerminalDimensions();
+
+  // State
   const [input, setInput] = useState("");
-  const [cursor, setCursor] = useState(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [streamText_, setStreamText] = useState("");
   const [showWelcome, setShowWelcome] = useState(true);
   const [sessionUsage, setSessionUsage] = useState<LanguageModelUsage>();
-  const [cumulativeTokens, setCumulativeTokens] = useState<{ input: number; output: number; total: number }>({ input: 0, output: 0, total: 0 });
+  const [cumulativeTokens, setCumulativeTokens] = useState({
+    input: 0,
+    output: 0,
+    total: 0,
+  });
   const [selectedModel, setSelectedModel] = useState(config.defaultModel);
   const [showPalette, setShowPalette] = useState(false);
   const [messageScrollOffset, setMessageScrollOffset] = useState(0);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const [conversationSummary, setConversationSummary] = useState<string>("");
+  const [conversationSummary, setConversationSummary] = useState("");
   const [isCompacting, setIsCompacting] = useState(false);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
+  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
 
-  const [pendingApproval, setPendingApproval] = useState<{
-    toolName: string;
-    args: Record<string, any>;
-    resolve: (approved: boolean) => void;
-  } | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const askUserApproval = (toolName: string, args: any): Promise<boolean> =>
-    new Promise((resolve) =>
-      setPendingApproval({ toolName, args, resolve }),
-    );
+  // Derived values
+  const isInputActive = !showPalette && !pendingApproval;
+  const cols = termWidth || 80;
+  const rows = termHeight || 24;
+  const sidebarWidth = Math.max(25, Math.floor(cols * 0.2));
+  const mainWidth = cols - sidebarWidth;
+  const reservedRows = showWelcome && messages.length === 0 ? 13 : 7;
+  const availableRows = Math.max(5, rows - reservedRows);
 
-  useInput(
-    (_, key) => {
-      if (key.escape && !showPalette && !pendingApproval) {
-        if ((streaming || isCompacting) && abortControllerRef.current) {
-          abortControllerRef.current.abort();
-          abortControllerRef.current = null;
-        } else if (!streaming && !isCompacting) {
-          exit();
-        }
-        return;
-      }
-
-      if (!showPalette && !pendingApproval && key.upArrow) {
-        setMessageScrollOffset((prev) =>
-          Math.min(messages.length, prev + 1),
-        );
-        return;
-      }
-
-      if (!showPalette && !pendingApproval && key.downArrow) {
-        setMessageScrollOffset((prev) => Math.max(0, prev - 1));
-        return;
-      }
-
-      if (!showPalette && !pendingApproval && key.pageUp) {
-        setMessageScrollOffset((prev) =>
-          Math.min(messages.length, prev + 5),
-        );
-        return;
-      }
-
-      if (!showPalette && !pendingApproval && key.pageDown) {
-        setMessageScrollOffset((prev) => Math.max(0, prev - 5));
-        return;
-      }
-
-      if (!showPalette && !pendingApproval && key.home) {
-        setMessageScrollOffset(messages.length);
-        return;
-      }
-
-      if (!showPalette && !pendingApproval && key.end) {
-        setMessageScrollOffset(0);
-      }
-    },
-    { isActive: !showPalette && !pendingApproval },
+  // Tool approval helper
+  const askUserApproval = useCallback(
+    (toolName: string, args: any): Promise<boolean> =>
+      new Promise((resolve) =>
+        setPendingApproval({ toolName, args, resolve })
+      ),
+    []
   );
 
-  // Load stored memory on startup
+  // Load stored memory and persisted session on startup
   useEffect(() => {
+    // Load memory summary
     loadStoredMemory().then((stored) => {
       if (stored?.summary) {
         setConversationSummary(stored.summary);
       }
     });
+
+    // Load persisted session
+    loadSession().then((session) => {
+      if (session && session.messages.length > 0) {
+        setMessages(session.messages);
+        setToolCalls(session.toolCalls);
+        if (session.model) {
+          setSelectedModel(session.model);
+        }
+        setShowWelcome(false);
+      }
+    });
   }, []);
 
-  // Mouse wheel scrolling for messages
-  // Wheel up = scroll up = show older messages = increase offset
-  // Wheel down = scroll down = show newer messages = decrease offset
-  useMouseWheel(
-    {
-      onScrollUp: () => {
-        if (!showPalette && !pendingApproval) {
-          setMessageScrollOffset((prev) =>
-            Math.min(messages.length, prev + 3),
-          );
-        }
-      },
-      onScrollDown: () => {
-        if (!showPalette && !pendingApproval) {
-          setMessageScrollOffset((prev) => Math.max(0, prev - 3));
-        }
-      },
-    },
-    !showPalette && !pendingApproval,
-  );
+  // Auto-save session when messages or tool calls change
+  useEffect(() => {
+    if (messages.length > 0) {
+      saveSession(messages, toolCalls, selectedModel);
+    }
+  }, [messages, toolCalls, selectedModel]);
 
+  // Reset scroll when messages change
   useEffect(() => {
     setMessageScrollOffset(0);
   }, [messages.length, streaming]);
 
+  // Keyboard handling - only when input is active
+  useKeyboard((key) => {
+    // Command palette toggle
+    if (key.ctrl && key.name === "k" && !showPalette && !pendingApproval) {
+      setShowPalette(true);
+      return;
+    }
+
+    // Escape handling
+    if (key.name === "escape" && !showPalette && !pendingApproval) {
+      if ((streaming || isCompacting) && abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      } else if (!streaming && !isCompacting) {
+        renderer.destroy();
+        process.exit(0);
+      }
+      return;
+    }
+
+    // Scroll controls (only when not in modal)
+    if (!showPalette && !pendingApproval) {
+      if (key.name === "up") {
+        setMessageScrollOffset((prev) => Math.min(messages.length, prev + 1));
+        return;
+      }
+      if (key.name === "down") {
+        setMessageScrollOffset((prev) => Math.max(0, prev - 1));
+        return;
+      }
+      if (key.name === "pageup") {
+        setMessageScrollOffset((prev) => Math.min(messages.length, prev + 5));
+        return;
+      }
+      if (key.name === "pagedown") {
+        setMessageScrollOffset((prev) => Math.max(0, prev - 5));
+        return;
+      }
+      if (key.name === "home") {
+        setMessageScrollOffset(messages.length);
+        return;
+      }
+      if (key.name === "end") {
+        setMessageScrollOffset(0);
+        return;
+      }
+    }
+  });
+
+  // Handle submit
   const handleSubmit = useCallback(
     async (prompt: string) => {
       if (!prompt.trim() || streaming || isCompacting) return;
@@ -161,17 +175,13 @@ export function App() {
       const newMessages = [...messages, userMsg];
       setMessages(newMessages);
       setInput("");
-      setCursor(0);
       setStreaming(true);
       setStreamText("");
-      
-      // Clear old tool calls when starting a new message
       setToolCalls([]);
 
       abortControllerRef.current = new AbortController();
 
-      // Memory management: Check if compaction is needed
-      const totalTokens = calculateTotalTokens(messages) + estimateTokens(prompt);
+      // Memory management
       const needsCompaction = shouldCompact(messages, DEFAULT_MEMORY_CONFIG, prompt);
 
       let messagesToSend: any[] = newMessages.map((m) => ({
@@ -179,7 +189,6 @@ export function App() {
         content: m.content,
       }));
 
-      // Add summary from previous session if exists
       if (conversationSummary) {
         messagesToSend = [
           { role: "system", content: `[Earlier Conversation Summary]: ${conversationSummary}` },
@@ -187,7 +196,7 @@ export function App() {
         ];
       }
 
-      // If near context limit, compact memory
+      // Compact memory if needed
       if (needsCompaction) {
         setIsCompacting(true);
         setMessages((prev) => [
@@ -212,21 +221,19 @@ export function App() {
             setConversationSummary(prepared.summary);
           }
 
-          // Remove the "Compacting..." message and replace with result
           setMessages((prev) => prev.slice(0, -1));
         } catch (err: any) {
-          // If abort, don't update messages
           if (err?.name === "AbortError") {
             setIsCompacting(false);
             return;
           }
-          // On error, continue with full messages
           console.error("Memory compaction failed:", err);
         } finally {
           setIsCompacting(false);
         }
       }
 
+      // Streaming
       try {
         while (true) {
           const result = streamText({
@@ -268,258 +275,297 @@ export function App() {
             result.content,
             result.response,
           ]);
-        const approvalRequests = content.filter(
-          (p) => p.type === "tool-approval-request",
-        );
 
-        if (approvalRequests.length === 0) {
-          const newIndex = messages.length;
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: fullText },
-          ]);
-          // Associate pending tool calls with this message
-          setToolCalls((prev) =>
-            prev.map((tc) =>
-              tc.assistantMessageIndex === -1
-                ? { ...tc, assistantMessageIndex: newIndex }
-                : tc
-            )
-          );
-          setStreamText("");
-          break;
-        }
-
-        setStreamText("");
-
-        // Add pending tool calls to UI
-        const pendingToolCalls: ToolCall[] = approvalRequests.map((req) => {
-          const r = req as any;
-          return {
-            id: r.approvalId,
-            assistantMessageIndex: -1, // Will be set when assistant message is added
-            name: r.toolCall.toolName,
-            args: r.toolCall.input,
-            status: "pending" as const,
-            timestamp: new Date(),
-          };
-        });
-        setToolCalls((prev) => [...prev, ...pendingToolCalls]);
-
-        const approvals: ToolApprovalResponse[] = [];
-        for (const req of approvalRequests) {
-          const r = req as any;
-          
-          // Update tool call status to approved/denied
-          const approved = await askUserApproval(
-            r.toolCall.toolName,
-            r.toolCall.input,
-          );
-          
-          // Update tool call status in state
-          setToolCalls((prev) =>
-            prev.map((tc) =>
-              tc.id === r.approvalId
-                ? { ...tc, status: approved ? "approved" : "denied" }
-                : tc
-            )
+          const approvalRequests = content.filter(
+            (p) => p.type === "tool-approval-request"
           );
 
-          // If approved, mark as running
-          if (approved) {
+          if (approvalRequests.length === 0) {
+            const newIndex = messages.length;
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: fullText },
+            ]);
             setToolCalls((prev) =>
               prev.map((tc) =>
-                tc.id === r.approvalId
-                  ? { ...tc, status: "running" as const }
+                tc.assistantMessageIndex === -1
+                  ? { ...tc, assistantMessageIndex: newIndex }
                   : tc
               )
             );
+            setStreamText("");
+            break;
           }
 
-          approvals.push({
-            type: "tool-approval-response",
-            approvalId: r.approvalId,
-            approved,
-          });
-        }
+          setStreamText("");
 
-        messagesToSend = [
-          ...messagesToSend,
-          ...(response.messages as any[]),
-          { role: "tool", content: approvals },
-        ];
-        
-        // Mark all running tool calls as completed after the loop iteration
-        setToolCalls((prev) =>
-          prev.map((tc) =>
-            tc.status === "running" ? { ...tc, status: "completed" } : tc
-          )
-        );
-      }
-        } catch (err: any) {
-        const isAbortError = err?.name === "AbortError" || 
+          // Add pending tool calls
+          const pendingToolCalls: ToolCall[] = approvalRequests.map((req) => {
+            const r = req as any;
+            return {
+              id: r.approvalId,
+              assistantMessageIndex: -1,
+              name: r.toolCall.toolName,
+              args: r.toolCall.input,
+              status: "pending" as const,
+              timestamp: new Date(),
+            };
+          });
+          setToolCalls((prev) => [...prev, ...pendingToolCalls]);
+
+          // Handle approvals
+          const approvals: ToolApprovalResponse[] = [];
+          for (const req of approvalRequests) {
+            const r = req as any;
+            const approved = await askUserApproval(
+              r.toolCall.toolName,
+              r.toolCall.input
+            );
+
+            setToolCalls((prev) =>
+              prev.map((tc) =>
+                tc.id === r.approvalId
+                  ? { ...tc, status: approved ? "approved" : "denied" }
+                  : tc
+              )
+            );
+
+            if (approved) {
+              setToolCalls((prev) =>
+                prev.map((tc) =>
+                  tc.id === r.approvalId ? { ...tc, status: "running" as const } : tc
+                )
+              );
+            }
+
+            approvals.push({
+              type: "tool-approval-response",
+              approvalId: r.approvalId,
+              approved,
+            });
+          }
+
+          messagesToSend = [
+            ...messagesToSend,
+            ...(response.messages as any[]),
+            { role: "tool", content: approvals },
+          ];
+
+          setToolCalls((prev) =>
+            prev.map((tc) =>
+              tc.status === "running" ? { ...tc, status: "completed" } : tc
+            )
+          );
+        }
+      } catch (err: any) {
+        const isAbortError =
+          err?.name === "AbortError" ||
           err?.message?.includes("abort") ||
           (err?.cause && (err?.cause as any)?.name === "AbortError");
-        
+
+        const newIndex = messages.length;
         if (isAbortError) {
-          const newIndex = messages.length;
           setMessages((prev) => [
             ...prev,
             { role: "assistant", content: "Generation cancelled." },
           ]);
-          setToolCalls((prev) =>
-            prev.map((tc) =>
-              tc.assistantMessageIndex === -1
-                ? { ...tc, assistantMessageIndex: newIndex }
-                : tc
-            )
-          );
         } else {
-          const newIndex = messages.length;
           setMessages((prev) => [
             ...prev,
-            {
-              role: "assistant",
-              content: `Error: ${err?.message || "Failed to reach LLM"}`,
-            },
+            { role: "assistant", content: `Error: ${err?.message || "Failed to reach LLM"}` },
           ]);
-          setToolCalls((prev) =>
-            prev.map((tc) =>
-              tc.assistantMessageIndex === -1
-                ? { ...tc, assistantMessageIndex: newIndex }
-                : tc
-            )
-          );
         }
+        setToolCalls((prev) =>
+          prev.map((tc) =>
+            tc.assistantMessageIndex === -1
+              ? { ...tc, assistantMessageIndex: newIndex }
+              : tc
+          )
+        );
       } finally {
         setStreaming(false);
         setStreamText("");
         abortControllerRef.current = null;
       }
     },
-    [messages, selectedModel, streaming, conversationSummary, isCompacting],
+    [messages, selectedModel, streaming, conversationSummary, isCompacting, askUserApproval]
   );
 
-  const isInputActive = !showPalette && !pendingApproval;
-  const rows = stdout.rows || process.stdout.rows || 24;
-  const cols = stdout.columns || process.stdout.columns || 80;
-  // Reserve rows for: input box (3) + status bar (1) + padding (1) + welcome if shown
-  const reservedRows = showWelcome && messages.length === 0 ? 13 : 5;
-  const availableRows = Math.max(5, rows - reservedRows);
+  // Get visible messages
+  const visibleMessages = useMemo(() => {
+    return messages.slice(-10); // Show last 10 messages
+  }, [messages]);
 
+  // Group tool calls by message index
+  const toolCallsByMessageIndex = useMemo(() => {
+    const map = new Map<number, ToolCall[]>();
+    toolCalls.forEach((tc) => {
+      const idx = tc.assistantMessageIndex;
+      if (!map.has(idx)) map.set(idx, []);
+      map.get(idx)!.push(tc);
+    });
+    return map;
+  }, [toolCalls]);
+
+  // Streaming message
   const streamingMessage =
     streaming && streamText_
       ? { role: "assistant" as const, content: streamText_ }
       : undefined;
 
   return (
-    <Box width={cols} height={rows} backgroundColor={theme.bgDark}>
-      <Box
+    <box
+      width={cols}
+      height={rows}
+      backgroundColor={colors.bgDark}
+      flexDirection="row"
+    >
+      <box
+        width={mainWidth}
+        height="100%"
+        backgroundColor={colors.bgDark}
         flexDirection="column"
-        width={"80%"}
-        height={"100%"}
-        backgroundColor={theme.bgDark}
       >
-        {showWelcome && messages.length === 0 && <Box height={"100%"}><WelcomeScreen /></Box>}
+        {/* Welcome screen or messages */}
+        {showWelcome && messages.length === 0 ? (
+          <WelcomeScreen />
+        ) : (
+          <box width="100%" flexGrow={1} paddingX={1} paddingY={1}>
+            <scrollbox
+              width={mainWidth - 2}
+              height={availableRows - 1}
+              scrollY={true}
+              stickyScroll={true}
+              stickyStart="bottom"
+              viewportCulling={true}
+            >
+              {/* Orphan tool calls (running) */}
+              {toolCalls
+                .filter((tc) => tc.assistantMessageIndex === -1)
+                .map((tc) => (
+                  <ToolCallView key={tc.id} toolCall={tc} />
+                ))}
 
-        {messages.length > 0 && (
-          <Box paddingX={1}>
-            <ScrollableMessageList
-              messages={messages}
-              toolCalls={toolCalls}
-              scrollOffset={messageScrollOffset}
-              maxHeight={availableRows}
-              width={cols - 2}
-              streamingMessage={streamingMessage}
-            />
-          </Box>
+              {/* Messages */}
+              {visibleMessages.map((msg, i) => {
+                const actualIndex = messages.length - visibleMessages.length + i;
+                return (
+                  <box key={`${actualIndex}-${msg.role}`} flexDirection="column" marginY={0.5}>
+                    <MessageView msg={msg} width={mainWidth - 4} />
+                    {msg.role === "assistant" &&
+                      toolCallsByMessageIndex.get(actualIndex)?.map((tc) => (
+                        <ToolCallView key={tc.id} toolCall={tc} />
+                      ))}
+                  </box>
+                );
+              })}
+
+              {/* Streaming message */}
+              {streamingMessage && (
+                <MessageView msg={streamingMessage} width={mainWidth - 4} isStreaming={true} />
+              )}
+            </scrollbox>
+          </box>
         )}
 
-        <Box
+        <box
+          width="100%"
           flexDirection="column"
-          justifyContent="space-between"
-          gap={2}
-          backgroundColor={theme.bg}
-          padding={1}
-          margin={1}
+          backgroundColor={colors.bg}
+          padding={2}
         >
-          <InputBox
-            value={input}
-            cursor={cursor}
-            onChange={(nextValue, nextCursor) => {
-              setInput(nextValue);
-              setCursor(nextCursor);
-            }}
-            onSubmit={handleSubmit}
-            onCommandPalette={() => setShowPalette(true)}
-            placeholder="Ask anything..."
-            isActive={isInputActive}
-          />
+          <box width="100%" flexDirection="row" justifyContent="center" alignItems="center">
+            <text>
+              <strong fg={theme.purple}>❯ </strong>
+            </text>
+            <input
+              placeholder="Ask anything..."
+              value={input}
+              onInput={setInput}
+              onSubmit={() => handleSubmit(input)}
+              focused={isInputActive}
+              width={"100%"}
+              backgroundColor={colors.bg}
+              textColor={colors.fg}
+              cursorColor={colors.purple}
+            />
+          </box>
 
-          <Box gap={1}>
-            <Text bold dimColor>{selectedModel}</Text>
-            {streaming && <Spinner label="Generating..." />}
-          </Box>
-        </Box>
-      </Box>
+          <box width="100%" flexDirection="row" gap={1}>
+            <text><strong fg={theme.blue}>{selectedModel}</strong></text>
+            {streaming && (
+              <text fg={theme.yellow}>⏳ Generating...</text>
+            )}
+          </box>
+        </box>
+      </box>
 
-      <Box
-        width={"20%"}
-        height={"100%"}
-        backgroundColor={theme.bg}
+      {/* Sidebar */}
+      <box
+        width={sidebarWidth}
+        height="100%"
+        backgroundColor={colors.bg}
         paddingX={2}
         paddingY={1}
       >
-          <StatusBar
-            model={selectedModel}
-            msgCount={messages.length}
-            cumulativeTokens={cumulativeTokens}
-          />
-      </Box>
+        <StatusBar
+          model={selectedModel}
+          msgCount={messages.length}
+          cumulativeTokens={cumulativeTokens}
+        />
+      </box>
 
+      {/* Modals */}
       {showPalette && (
-        <Box
+        <box
           position="absolute"
           width={cols}
           height={rows}
           justifyContent="center"
           alignItems="center"
+          zIndex={100}
         >
           <CommandPalette
             sessionUsage={sessionUsage}
             onClose={() => setShowPalette(false)}
-            onChangeModel={(model: string) =>
-              setSelectedModel(model)
-            }
+            onChangeModel={setSelectedModel}
             onClearHistory={() => {
               setMessages([]);
               setInput("");
-              setCursor(0);
+              setShowWelcome(true);
+            }}
+            onClearSaved={() => {
+              clearSession();
+              setMessages([]);
+              setToolCalls([]);
+              setShowWelcome(true);
+            }}
+            onShowWelcome={() => {
               setShowWelcome(true);
             }}
           />
-        </Box>
+        </box>
       )}
 
       {pendingApproval && (
-        <Box
+        <box
           position="absolute"
           width={cols}
           height={rows}
           justifyContent="center"
           alignItems="center"
+          zIndex={100}
         >
           <ApprovalPrompt
             toolName={pendingApproval.toolName}
             args={pendingApproval.args}
-            isActive={Boolean(pendingApproval)}
             onRespond={(approved: boolean) => {
               pendingApproval.resolve(approved);
               setPendingApproval(null);
             }}
           />
-        </Box>
+        </box>
       )}
-    </Box>
+    </box>
   );
 }
