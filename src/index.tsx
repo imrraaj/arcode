@@ -8,11 +8,11 @@ const renderer = await createCliRenderer({
   exitOnCtrlC: true,
   targetFps: 30,
   maxFps: 60,
-  screenMode: "alternate-screen",
+  screenMode: "main-screen",
   useMouse: true,
   enableMouseMovement: true,
   autoFocus: true,
-  backgroundColor: "#151718",
+  backgroundColor: "#181818",
 });
 
 createRoot(renderer).render(<App />);

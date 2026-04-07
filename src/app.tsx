@@ -496,7 +496,7 @@ export function App() {
             />
           </box>
 
-          <box width="100%" flexDirection="row" gap={1}>
+          <box width="100%" flexDirection="row" gap={1} paddingBottom={1}>
             <text><strong fg={theme.blue}>{selectedModel}</strong></text>
             {streaming && (
               <text fg={theme.comment}>⏳ Generating...</text>
