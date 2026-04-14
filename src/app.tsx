@@ -231,7 +231,7 @@ export function App() {
           <box width="100%" flexGrow={1} paddingX={1} paddingY={1}>
             <scrollbox
               width={mainWidth - 2}
-              height={availableRows}
+              height={availableRows - 1}
               scrollY={true}
               stickyScroll={true}
               stickyStart="bottom"
@@ -268,7 +268,7 @@ export function App() {
 
         <box
           // width="100%"
-          width={mainWidth -2 }
+          width={mainWidth - 2}
           flexDirection="column"
           backgroundColor={colors.bg}
           paddingX={2}
