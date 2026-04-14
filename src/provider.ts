@@ -1,8 +1,11 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
-export const nvidia = createOpenAICompatible({
+const createNvidiaProvider = (apiKey: string) => createOpenAICompatible({
     baseURL: 'https://integrate.api.nvidia.com/v1',
     name: 'nvidia',
-    apiKey: process.env.NVIDIA_API_KEY!,
+    apiKey,
     includeUsage: true
 });
+
+export const nvidia = (model: string, apiKey: string) =>
+    createNvidiaProvider(apiKey)(model);

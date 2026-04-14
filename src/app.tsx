@@ -8,9 +8,11 @@ import { ToolCallView } from "./components/ToolCallView";
 import { StatusBar } from "./components/StatusBar";
 import { CommandPalette } from "./components/CommandPalette";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
+import { ApiKeyPrompt } from "./components/ApiKeyPrompt";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { config } from "./utils/config";
 import { saveSession, loadSession, clearSession } from "./utils/persistence";
+import { loadSettings, saveSettings } from "./utils/settings";
 import { loadStoredMemory } from "./context/memory";
 import type { Message, ToolCall, PendingApproval } from "./types";
 
@@ -37,11 +39,16 @@ export function App() {
   const [isCompacting, setIsCompacting] = useState(false);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
+  const [nvidiaApiKey, setNvidiaApiKey] = useState<string | null>(null);
+  const [apiKeyLoading, setApiKeyLoading] = useState(true);
+  const [savingApiKey, setSavingApiKey] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Derived values
-  const isInputActive = !showPalette && !pendingApproval;
+  const showApiKeyPrompt = !apiKeyLoading && !nvidiaApiKey;
+  const isInputActive = !showPalette && !pendingApproval && !showApiKeyPrompt;
   const cols = termWidth || 80;
   const rows = termHeight || 24;
   const sidebarWidth = Math.max(25, Math.floor(cols * 0.2));
@@ -60,6 +67,15 @@ export function App() {
 
   // Load stored memory and persisted session on startup
   useEffect(() => {
+    loadSettings()
+      .then((settings) => {
+        const key = settings.nvidiaApiKey?.trim();
+        if (key) setNvidiaApiKey(key);
+      })
+      .finally(() => {
+        setApiKeyLoading(false);
+      });
+
     // Load memory summary
     loadStoredMemory().then((stored) => {
       if (stored?.summary) {
@@ -94,14 +110,19 @@ export function App() {
 
   // Keyboard handling - only when input is active
   useKeyboard((key) => {
+    if (showApiKeyPrompt && key.name === "escape") {
+      renderer.destroy();
+      process.exit(0);
+    }
+
     // Command palette toggle
-    if (key.ctrl && key.name === "k" && !showPalette && !pendingApproval) {
+    if (key.ctrl && key.name === "k" && !showPalette && !pendingApproval && !showApiKeyPrompt) {
       setShowPalette(true);
       return;
     }
 
     // Escape handling
-    if (key.name === "escape" && !showPalette && !pendingApproval) {
+    if (key.name === "escape" && !showPalette && !pendingApproval && !showApiKeyPrompt) {
       if ((streaming || isCompacting) && abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
@@ -113,7 +134,7 @@ export function App() {
     }
 
     // Scroll controls (only when not in modal)
-    if (!showPalette && !pendingApproval) {
+    if (!showPalette && !pendingApproval && !showApiKeyPrompt) {
       if (key.name === "up") {
         setMessageScrollOffset((prev) => Math.min(messages.length, prev + 1));
         return;
@@ -141,10 +162,24 @@ export function App() {
     }
   });
 
+  const handleApiKeySubmit = useCallback(async (apiKey: string) => {
+    setApiKeyError(null);
+    setSavingApiKey(true);
+    const ok = await saveSettings({ nvidiaApiKey: apiKey });
+    if (!ok) {
+      setApiKeyError("Could not save key to ~/.arc/config.json");
+      setSavingApiKey(false);
+      return;
+    }
+
+    setNvidiaApiKey(apiKey);
+    setSavingApiKey(false);
+  }, []);
+
   // Handle submit
   const handleSubmit = useCallback(
     async (prompt: string) => {
-      if (!prompt.trim() || streaming || isCompacting) return;
+      if (!prompt.trim() || streaming || isCompacting || !nvidiaApiKey) return;
 
       setShowWelcome(false);
       const userMsg: Message = { role: "user", content: prompt.trim() };
@@ -163,6 +198,7 @@ export function App() {
           messages,
           messagesWithPrompt: newMessages,
           selectedModel,
+          nvidiaApiKey,
           conversationSummary,
           abortSignal: abortControllerRef.current.signal,
           askUserApproval,
@@ -186,7 +222,7 @@ export function App() {
         abortControllerRef.current = null;
       }
     },
-    [messages, selectedModel, streaming, conversationSummary, isCompacting, askUserApproval]
+    [messages, selectedModel, streaming, conversationSummary, isCompacting, askUserApproval, nvidiaApiKey]
   );
 
   // Get visible messages
@@ -366,6 +402,23 @@ export function App() {
               pendingApproval.resolve(approved);
               setPendingApproval(null);
             }}
+          />
+        </box>
+      )}
+
+      {showApiKeyPrompt && (
+        <box
+          position="absolute"
+          width={cols}
+          height={rows}
+          justifyContent="center"
+          alignItems="center"
+          zIndex={120}
+        >
+          <ApiKeyPrompt
+            onSubmit={handleApiKeySubmit}
+            saving={savingApiKey}
+            error={apiKeyError}
           />
         </box>
       )}

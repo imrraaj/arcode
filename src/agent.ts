@@ -31,6 +31,7 @@ interface RunAgentTurnOptions {
   messages: Message[];
   messagesWithPrompt: Message[];
   selectedModel: string;
+  nvidiaApiKey: string;
   conversationSummary: string;
   abortSignal?: AbortSignal;
   askUserApproval: (toolName: string, args: Record<string, any>) => Promise<boolean>;
@@ -70,6 +71,7 @@ export async function runAgentTurn({
   messages,
   messagesWithPrompt,
   selectedModel,
+  nvidiaApiKey,
   conversationSummary,
   abortSignal,
   askUserApproval,
@@ -106,7 +108,7 @@ export async function runAgentTurn({
       const prepared = await prepareMessages(
         messages,
         DEFAULT_MEMORY_CONFIG,
-        nvidia(selectedModel),
+        nvidia(selectedModel, nvidiaApiKey),
         abortSignal
       );
 
@@ -127,7 +129,7 @@ export async function runAgentTurn({
   try {
     while (true) {
       const result = streamText({
-        model: nvidia(selectedModel),
+        model: nvidia(selectedModel, nvidiaApiKey),
         system: config.systemPrompt,
         messages: messagesToSend,
         stopWhen: stepCountIs(5),
@@ -147,6 +149,7 @@ export async function runAgentTurn({
         experimental_context: {
           sandbox: sdbx,
           skills: await discoverSkills(sdbx, [".agents"]),
+          nvidiaApiKey,
         },
         onFinish: ({ usage }) => onUsage(usage),
       });

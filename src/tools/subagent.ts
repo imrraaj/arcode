@@ -13,10 +13,14 @@ export const subAgentTool = tool({
         model: z.string().optional().describe('Optional model override for the sub-agent'),
     }),
     needsApproval: true,
-    execute: async ({ model, prompt }, { abortSignal }) => {
+    execute: async ({ model, prompt }, { abortSignal, experimental_context }) => {
+        const nvidiaApiKey = (experimental_context as { nvidiaApiKey?: string } | undefined)?.nvidiaApiKey;
+        if (!nvidiaApiKey) {
+            return "Error: NVIDIA API key is not configured.";
+        }
         const selectedModel = model?.trim() ? model.trim() : DEFAULT_SUBAGENT_MODEL;
         const agent = new ToolLoopAgent({
-            model: nvidia(selectedModel),
+            model: nvidia(selectedModel, nvidiaApiKey),
             tools: {
                 readFile: readFileTool,
                 writeFile: writeFileTool,
