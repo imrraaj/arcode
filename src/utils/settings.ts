@@ -1,8 +1,8 @@
 import { access, mkdir, readFile, writeFile, chmod } from "fs/promises";
 import { join } from "path";
-import { homedir } from "os";
+import { WORKSPACE_ROOT } from "./workspace";
 
-const DATA_DIR = join(homedir(), ".arc");
+const DATA_DIR = process.env.ARC_DATA_DIR ?? join(WORKSPACE_ROOT, ".arc");
 const SETTINGS_FILE = join(DATA_DIR, "config.json");
 
 export interface ArcSettings {

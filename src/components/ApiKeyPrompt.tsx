@@ -39,7 +39,7 @@ export function ApiKeyPrompt({ onSubmit, saving, error }: ApiKeyPromptProps) {
       </box>
 
       <box width="100%" paddingX={1}>
-        <text fg={theme.comment}>Stored at ~/.arc/config.json</text>
+        <text fg={theme.comment}>Stored at .arc/config.json</text>
       </box>
 
       <box width="100%" paddingX={1} flexDirection="row">

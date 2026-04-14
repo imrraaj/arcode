@@ -3,17 +3,21 @@ import { useKeyboard } from "@opentui/react";
 import { theme, colors } from "../theme";
 import type { LanguageModelUsage } from "ai";
 import { AVAILABLE_MODELS } from "../types";
+import type { SessionMeta } from "../utils/persistence";
 
 interface CommandPaletteProps {
   sessionUsage?: LanguageModelUsage;
+  sessions: SessionMeta[];
+  currentSessionId: string | null;
   onClose: () => void;
+  onNewSession: () => void | Promise<void>;
+  onSwitchSession: (sessionId: string) => void | Promise<void>;
   onChangeModel: (model: string) => void;
   onClearHistory: () => void;
-  onClearSaved: () => void;
   onShowWelcome: () => void;
 }
 
-type Mode = "commands" | "models";
+type Mode = "commands" | "models" | "sessions";
 
 interface Command {
   id: string;
@@ -23,18 +27,22 @@ interface Command {
 
 const COMMANDS: Command[] = [
   { id: "change-model", label: "Change Model", description: "Switch to a different AI model" },
+  { id: "new-session", label: "New Session", description: "Create a fresh session thread" },
+  { id: "switch-session", label: "Switch Session", description: "Select an existing session thread" },
   { id: "view-usage", label: "View Usage", description: "Show token usage statistics" },
   { id: "clear-history", label: "Clear History", description: "Reset conversation messages" },
-  { id: "clear-saved", label: "Clear Saved Session", description: "Delete persisted session data" },
   { id: "show-welcome", label: "Show Welcome", description: "Show welcome screen with new session" },
 ];
 
 export function CommandPalette({
   sessionUsage,
+  sessions,
+  currentSessionId,
   onClose,
+  onNewSession,
+  onSwitchSession,
   onChangeModel,
   onClearHistory,
-  onClearSaved,
   onShowWelcome,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
@@ -52,11 +60,27 @@ export function CommandPalette({
       }));
     }
 
+    if (mode === "sessions") {
+      return sessions
+        .filter((session) => {
+          const haystack = `${session.title} ${session.id}`.toLowerCase();
+          return haystack.includes(query.toLowerCase());
+        })
+        .map((session) => ({
+          id: session.id,
+          label:
+            session.id === currentSessionId
+              ? `* ${session.title}`
+              : session.title,
+          description: `${session.messageCount} msgs • ${new Date(session.timestamp).toLocaleString()}`,
+        }));
+    }
+
     return COMMANDS.filter((command) => {
       const haystack = `${command.label} ${command.description}`.toLowerCase();
       return haystack.includes(query.toLowerCase());
     });
-  }, [mode, query]);
+  }, [mode, query, sessions, currentSessionId]);
 
   // Keyboard handling
   useKeyboard((key) => {
@@ -66,7 +90,7 @@ export function CommandPalette({
     }
 
     if (key.name === "escape") {
-      if (mode === "models") {
+      if (mode === "models" || mode === "sessions") {
         setMode("commands");
         setQuery("");
         setSelectedIndex(0);
@@ -102,6 +126,12 @@ export function CommandPalette({
         return;
       }
 
+      if (mode === "sessions") {
+        void onSwitchSession(selected.id);
+        onClose();
+        return;
+      }
+
       if (selected.id === "change-model") {
         setMode("models");
         setQuery("");
@@ -109,14 +139,21 @@ export function CommandPalette({
         return;
       }
 
-      if (selected.id === "clear-history") {
-        onClearHistory();
+      if (selected.id === "new-session") {
+        void onNewSession();
         onClose();
         return;
       }
 
-      if (selected.id === "clear-saved") {
-        onClearSaved();
+      if (selected.id === "switch-session") {
+        setMode("sessions");
+        setQuery("");
+        setSelectedIndex(0);
+        return;
+      }
+
+      if (selected.id === "clear-history") {
+        onClearHistory();
         onClose();
         return;
       }
@@ -151,7 +188,15 @@ export function CommandPalette({
     >
       {/* Title */}
       <box width="100%" paddingX={1}>
-        <text><strong>{mode === "models" ? "Select Model" : "Commands"}</strong></text>
+        <text>
+          <strong>
+            {mode === "models"
+              ? "Select Model"
+              : mode === "sessions"
+                ? "Select Session"
+                : "Commands"}
+          </strong>
+        </text>
       </box>
 
       {/* Search */}

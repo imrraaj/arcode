@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from "fs";
 import { join } from "path";
 import type { Message } from "../types";
+import { WORKSPACE_ROOT } from "../utils/workspace";
 
 export interface StoredMemory {
   summary: string;
@@ -8,7 +9,7 @@ export interface StoredMemory {
   lastUpdated: string;
 }
 
-const ARC_DIR = join(process.env.HOME || "~", ".arc");
+const ARC_DIR = process.env.ARC_DATA_DIR ?? join(WORKSPACE_ROOT, ".arc");
 const MEMORY_FILE = join(ARC_DIR, "memory.json");
 
 export async function ensureArcDir(): Promise<boolean> {

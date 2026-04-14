@@ -11,9 +11,16 @@ import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ApiKeyPrompt } from "./components/ApiKeyPrompt";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { config } from "./utils/config";
-import { saveSession, loadSession, clearSession } from "./utils/persistence";
+import {
+  saveSession,
+  loadSession,
+  clearSession,
+  listSessions,
+  createSession,
+  type SessionMeta,
+  type PersistedSession,
+} from "./utils/persistence";
 import { loadSettings, saveSettings } from "./utils/settings";
-import { loadStoredMemory } from "./context/memory";
 import type { Message, ToolCall, PendingApproval } from "./types";
 
 export function App() {
@@ -33,6 +40,8 @@ export function App() {
     total: 0,
   });
   const [selectedModel, setSelectedModel] = useState(config.defaultModel);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [showPalette, setShowPalette] = useState(false);
   const [messageScrollOffset, setMessageScrollOffset] = useState(0);
   const [conversationSummary, setConversationSummary] = useState("");
@@ -56,6 +65,28 @@ export function App() {
   const reservedRows = showWelcome && messages.length === 0 ? 13 : 6;
   const availableRows = Math.max(7, rows - reservedRows);
 
+  const hydrateSession = useCallback((session: PersistedSession) => {
+    setCurrentSessionId(session.id);
+    setMessages(session.messages);
+    setToolCalls(session.toolCalls);
+    setSelectedModel(session.model ?? config.defaultModel);
+    setConversationSummary(session.conversationSummary ?? "");
+    setCumulativeTokens(session.cumulativeTokens ?? {
+      input: 0,
+      output: 0,
+      total: 0,
+    });
+    setShowWelcome(session.messages.length === 0);
+    setInput("");
+    setStreamText("");
+    setStreaming(false);
+  }, []);
+
+  const refreshSessions = useCallback(async () => {
+    const available = await listSessions();
+    setSessions(available);
+  }, []);
+
   // Tool approval helper
   const askUserApproval = useCallback(
     (toolName: string, args: any): Promise<boolean> =>
@@ -76,32 +107,32 @@ export function App() {
         setApiKeyLoading(false);
       });
 
-    // Load memory summary
-    loadStoredMemory().then((stored) => {
-      if (stored?.summary) {
-        setConversationSummary(stored.summary);
-      }
-    });
-
-    // Load persisted session
-    loadSession().then((session) => {
-      if (session && session.messages.length > 0) {
-        setMessages(session.messages);
-        setToolCalls(session.toolCalls);
-        if (session.model) {
-          setSelectedModel(session.model);
+    loadSession().then(async (session) => {
+      if (session) {
+        hydrateSession(session);
+      } else {
+        const created = await createSession(config.defaultModel);
+        if (created) {
+          hydrateSession(created);
         }
-        setShowWelcome(false);
       }
+      await refreshSessions();
     });
-  }, []);
+  }, [hydrateSession, refreshSessions]);
 
   // Auto-save session when messages or tool calls change
   useEffect(() => {
-    if (messages.length > 0) {
-      saveSession(messages, toolCalls, selectedModel);
+    if (currentSessionId) {
+      saveSession(
+        currentSessionId,
+        messages,
+        toolCalls,
+        selectedModel,
+        conversationSummary,
+        cumulativeTokens
+      );
     }
-  }, [messages, toolCalls, selectedModel]);
+  }, [currentSessionId, messages, toolCalls, selectedModel, conversationSummary, cumulativeTokens]);
 
   // Reset scroll when messages change
   useEffect(() => {
@@ -117,6 +148,7 @@ export function App() {
 
     // Command palette toggle
     if (key.ctrl && key.name === "k" && !showPalette && !pendingApproval && !showApiKeyPrompt) {
+      void refreshSessions();
       setShowPalette(true);
       return;
     }
@@ -167,7 +199,7 @@ export function App() {
     setSavingApiKey(true);
     const ok = await saveSettings({ nvidiaApiKey: apiKey });
     if (!ok) {
-      setApiKeyError("Could not save key to ~/.arc/config.json");
+      setApiKeyError("Could not save key to .arc/config.json");
       setSavingApiKey(false);
       return;
     }
@@ -176,10 +208,54 @@ export function App() {
     setSavingApiKey(false);
   }, []);
 
+  const handleNewSession = useCallback(async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    const created = await createSession(selectedModel);
+    if (!created) return;
+    hydrateSession(created);
+    await refreshSessions();
+  }, [hydrateSession, refreshSessions, selectedModel]);
+
+  const handleSwitchSession = useCallback(
+    async (sessionId: string) => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+
+      const loaded = await loadSession(sessionId);
+      if (!loaded) return;
+      hydrateSession(loaded);
+      await refreshSessions();
+    },
+    [hydrateSession, refreshSessions]
+  );
+
+  const handleClearHistory = useCallback(async () => {
+    if (!currentSessionId) return;
+
+    setMessages([]);
+    setToolCalls([]);
+    setInput("");
+    setShowWelcome(true);
+    setConversationSummary("");
+    setCumulativeTokens({
+      input: 0,
+      output: 0,
+      total: 0,
+    });
+    await clearSession(currentSessionId);
+    await refreshSessions();
+  }, [currentSessionId, refreshSessions]);
+
   // Handle submit
   const handleSubmit = useCallback(
     async (prompt: string) => {
-      if (!prompt.trim() || streaming || isCompacting || !nvidiaApiKey) return;
+      if (!prompt.trim() || streaming || isCompacting || !nvidiaApiKey || !currentSessionId) return;
 
       setShowWelcome(false);
       const userMsg: Message = { role: "user", content: prompt.trim() };
@@ -222,7 +298,7 @@ export function App() {
         abortControllerRef.current = null;
       }
     },
-    [messages, selectedModel, streaming, conversationSummary, isCompacting, askUserApproval, nvidiaApiKey]
+    [messages, selectedModel, streaming, conversationSummary, isCompacting, askUserApproval, nvidiaApiKey, currentSessionId]
   );
 
   // Get visible messages
@@ -366,19 +442,13 @@ export function App() {
         >
           <CommandPalette
             sessionUsage={sessionUsage}
+            sessions={sessions}
+            currentSessionId={currentSessionId}
             onClose={() => setShowPalette(false)}
+            onNewSession={handleNewSession}
+            onSwitchSession={handleSwitchSession}
             onChangeModel={setSelectedModel}
-            onClearHistory={() => {
-              setMessages([]);
-              setInput("");
-              setShowWelcome(true);
-            }}
-            onClearSaved={() => {
-              clearSession();
-              setMessages([]);
-              setToolCalls([]);
-              setShowWelcome(true);
-            }}
+            onClearHistory={handleClearHistory}
             onShowWelcome={() => {
               setShowWelcome(true);
             }}
