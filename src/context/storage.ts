@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from "fs";
-import { join, dirname } from "path";
-import type { Message } from "../ui/MessageView.js";
+import { join } from "path";
+import type { Message } from "../types";
 
 export interface StoredMemory {
   summary: string;
@@ -11,9 +11,14 @@ export interface StoredMemory {
 const ARC_DIR = join(process.env.HOME || "~", ".arc");
 const MEMORY_FILE = join(ARC_DIR, "memory.json");
 
-export async function ensureArcDir(): Promise<void> {
-  if (!existsSync(ARC_DIR)) {
-    mkdirSync(ARC_DIR, { recursive: true });
+export async function ensureArcDir(): Promise<boolean> {
+  try {
+    if (!existsSync(ARC_DIR)) {
+      mkdirSync(ARC_DIR, { recursive: true });
+    }
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -21,7 +26,7 @@ export async function saveMemory(
   summary: string,
   recentMessages: Message[]
 ): Promise<void> {
-  await ensureArcDir();
+  if (!(await ensureArcDir())) return;
 
   const data: StoredMemory = {
     summary,
@@ -29,12 +34,16 @@ export async function saveMemory(
     lastUpdated: new Date().toISOString(),
   };
 
-  writeFileSync(MEMORY_FILE, JSON.stringify(data, null, 2));
+  try {
+    writeFileSync(MEMORY_FILE, JSON.stringify(data, null, 2));
+  } catch {
+    // Memory is best-effort; storage failures should not interrupt a turn.
+  }
 }
 
 export async function loadMemory(): Promise<StoredMemory | null> {
   try {
-    await ensureArcDir();
+    if (!(await ensureArcDir())) return null;
 
     if (!existsSync(MEMORY_FILE)) {
       return null;
@@ -43,20 +52,19 @@ export async function loadMemory(): Promise<StoredMemory | null> {
     const content = readFileSync(MEMORY_FILE, "utf-8");
     const data = JSON.parse(content) as StoredMemory;
     return data;
-  } catch (error) {
-    console.error("Failed to load memory:", error);
+  } catch {
     return null;
   }
 }
 
 export async function clearMemory(): Promise<void> {
   try {
-    await ensureArcDir();
+    if (!(await ensureArcDir())) return;
     if (existsSync(MEMORY_FILE)) {
       unlinkSync(MEMORY_FILE);
     }
-  } catch (error) {
-    console.error("Failed to clear memory:", error);
+  } catch {
+    // Memory is best-effort; storage may be unavailable.
   }
 }
 

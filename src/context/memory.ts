@@ -1,8 +1,8 @@
-import { streamText, generateText } from "ai";
+import { generateText } from "ai";
 import { z } from "zod";
 import { tool } from "ai";
-import type { Message } from "../ui/MessageView.js";
-import { saveMemory, loadMemory, clearMemory, hasStoredMemory, type StoredMemory } from "./storage.js";
+import type { Message } from "../types";
+import { saveMemory, loadMemory, clearMemory } from "./storage.js";
 
 export interface MemoryConfig {
   windowSize: number;
@@ -17,8 +17,6 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   safetyBuffer: 2000,
   compactionThreshold: 0.9,
 };
-
-const MAX_TOKENS_FOR_SUMMARY = 8000;
 
 const SUMMARIZE_SYSTEM_PROMPT = `You are a conversation summarizer. Your task is to summarize the given conversation concisely while preserving key information.
 

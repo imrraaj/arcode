@@ -1,10 +1,8 @@
 import { YAML } from "bun";
 import { readdir, readFile } from "fs/promises";
-import { readFileTool } from "./file";
-import { fileURLToPath } from "url";
-import { isAbsolute, resolve } from "path";
 import z from "zod";
 import { tool } from "ai";
+import { resolveWorkspacePath } from "../utils/workspace";
 interface Sandbox {
     readFile(path: string): Promise<string>;
     readdir(
@@ -74,23 +72,18 @@ export function parseFrontmatter(content: string): { name: string; description: 
     return YAML.parse(match[1]) as { name: string; description: string, path?: string };
 }
 
-const PROJECT_ROOT = process.env.ARC_WORKSPACE_ROOT ?? resolve(fileURLToPath(new URL('../../', import.meta.url)));
-
-const resolvePath = (path: string) => isAbsolute(path) ? path : resolve(PROJECT_ROOT, path);
-
-
 export const sdbx: Sandbox = {
     exec: async (command) => {
         const proc = Bun.spawn([command]);
         return { stdout: proc.stdout.toString(), stderr: "" };
     },
     readFile: async (path) => {
-        const resolvedPath = resolvePath(path);
+        const resolvedPath = resolveWorkspacePath(path);
         const content = await readFile(resolvedPath, "utf-8");
         return content;
     },
     readdir: async (path, opts) => {
-        const resolvedPath = resolvePath(path);
+        const resolvedPath = resolveWorkspacePath(path);
         const entries = await readdir(resolvedPath, opts);
         return entries;
     }

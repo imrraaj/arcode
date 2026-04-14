@@ -1,11 +1,10 @@
 import { readFile, writeFile, mkdir, access } from "fs/promises";
-import { join, dirname } from "path";
+import { join } from "path";
 import { homedir } from "os";
 import type { Message, ToolCall } from "../types";
 
 const DATA_DIR = join(homedir(), ".arc");
 const MESSAGES_FILE = join(DATA_DIR, "messages.json");
-const TOOL_CALLS_FILE = join(DATA_DIR, "toolcalls.json");
 
 export interface PersistedSession {
   messages: Message[];
@@ -14,11 +13,17 @@ export interface PersistedSession {
   model?: string;
 }
 
-async function ensureDir() {
+async function ensureDir(): Promise<boolean> {
   try {
     await access(DATA_DIR);
+    return true;
   } catch {
-    await mkdir(DATA_DIR, { recursive: true });
+    try {
+      await mkdir(DATA_DIR, { recursive: true });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -27,7 +32,7 @@ export async function saveSession(
   toolCalls: ToolCall[],
   model?: string
 ): Promise<void> {
-  await ensureDir();
+  if (!(await ensureDir())) return;
 
   const session: PersistedSession = {
     messages,
@@ -36,7 +41,11 @@ export async function saveSession(
     model,
   };
 
-  await writeFile(MESSAGES_FILE, JSON.stringify(session, null, 2));
+  try {
+    await writeFile(MESSAGES_FILE, JSON.stringify(session, null, 2));
+  } catch {
+    // Persistence is best-effort; the TUI should keep working on read-only homes.
+  }
 }
 
 export async function loadSession(): Promise<PersistedSession | null> {
@@ -61,7 +70,7 @@ export async function loadSession(): Promise<PersistedSession | null> {
 
 export async function clearSession(): Promise<void> {
   try {
-    await access(MESSAGES_FILE);
+    if (!(await ensureDir())) return;
     await writeFile(
       MESSAGES_FILE,
       JSON.stringify(
@@ -75,14 +84,18 @@ export async function clearSession(): Promise<void> {
       )
     );
   } catch {
-    // File doesn't exist, nothing to clear
+    // Persistence is best-effort; nothing to clear or storage is unavailable.
   }
 }
 
 export async function exportSession(filepath: string): Promise<void> {
   const session = await loadSession();
   if (session) {
-    await writeFile(filepath, JSON.stringify(session, null, 2));
+    try {
+      await writeFile(filepath, JSON.stringify(session, null, 2));
+    } catch {
+      // Export is best-effort for now; callers can verify the file exists.
+    }
   }
 }
 

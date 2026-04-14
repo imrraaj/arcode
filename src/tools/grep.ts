@@ -1,20 +1,24 @@
 import { tool } from 'ai';
 import { z } from 'zod';
+import { resolveWorkspacePath } from '../utils/workspace';
 
 export const grepTool = tool({
     description: 'Search for a regex pattern in files within a directory',
     inputSchema: z.object({
         pattern: z.string().describe('Regex pattern to search for'),
-        directory: z.string().describe('Directory path relative to project root (or absolute path)'),
+        directory: z.string().describe('Directory path relative to the workspace root'),
     }),
     execute: async ({ pattern, directory }) => {
-        const rg = Bun.spawn(['rg', pattern, directory, '--json']);
-        const decoder = new TextDecoder();
-        let output = '';
-        for await (const chunk of rg.stdout) {
-            const text = decoder.decode(chunk);
-            output += text;
-        }
+        const resolvedDirectory = resolveWorkspacePath(directory);
+        const rg = Bun.spawn(['rg', pattern, resolvedDirectory, '--json'], {
+            stdout: 'pipe',
+            stderr: 'pipe',
+        });
+        const [output] = await Promise.all([
+            new Response(rg.stdout).text(),
+            new Response(rg.stderr).text(),
+            rg.exited,
+        ]);
         const results = output
             .split('\n')
             .filter(line => line.trim())

@@ -1,13 +1,7 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { resolve, isAbsolute } from 'path';
-import { fileURLToPath } from 'url';
+import { resolveWorkspacePath, WORKSPACE_ROOT } from '../utils/workspace';
 
-const PROJECT_ROOT =
-    process.env.ARC_WORKSPACE_ROOT ??
-    resolve(fileURLToPath(new URL('../../', import.meta.url)));
-
-const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_BYTES = 50_000; // 50 KB cap to avoid flooding context
 
 /**
@@ -71,8 +65,12 @@ export const runCommandTool = tool({
         if (blocked) return blocked;
 
         // Safety: resolve and constrain working directory to project root
-        const rawCwd = cwd ? resolve(PROJECT_ROOT, cwd) : PROJECT_ROOT;
-        const safeCwd = rawCwd.startsWith(PROJECT_ROOT) ? rawCwd : PROJECT_ROOT;
+        let safeCwd = WORKSPACE_ROOT;
+        try {
+            safeCwd = cwd ? resolveWorkspacePath(cwd) : WORKSPACE_ROOT;
+        } catch (error) {
+            return error instanceof Error ? error.message : 'Invalid working directory';
+        }
 
         const timeoutMs = Math.min(timeoutSeconds, 120) * 1000;
 

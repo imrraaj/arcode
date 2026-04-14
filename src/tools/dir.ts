@@ -1,13 +1,7 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { mkdir, readdir } from 'fs/promises';
-import { isAbsolute, resolve } from 'path';
-import { fileURLToPath } from 'url';
-
-const PROJECT_ROOT = process.env.ARC_WORKSPACE_ROOT ?? resolve(fileURLToPath(new URL('../../', import.meta.url)));
-
-const resolvePath = (path: string) =>
-    isAbsolute(path) ? path : resolve(PROJECT_ROOT, path);
+import { resolveWorkspacePath } from '../utils/workspace';
 
 export const createDirTool = tool({
     description: 'Create a new directory',
@@ -15,7 +9,7 @@ export const createDirTool = tool({
         path: z.string().describe('Directory path relative to project root (or absolute path)'),
     }),
     execute: async ({ path }) => {
-        const resolvedPath = resolvePath(path);
+        const resolvedPath = resolveWorkspacePath(path);
         await mkdir(resolvedPath, { recursive: true });
         return `Created directory at ${resolvedPath}`;
     },
@@ -27,7 +21,7 @@ export const readDirTool = tool({
         path: z.string().describe('Directory path relative to project root (or absolute path)'),
     }),
     execute: async ({ path }) => {
-        const resolvedPath = resolvePath(path);
+        const resolvedPath = resolveWorkspacePath(path);
         const entries = await readdir(resolvedPath, { withFileTypes: true });
         return entries.map((entry) => ({
             name: entry.name,

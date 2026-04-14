@@ -1,25 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
-import { Box, Text } from "@opentui/core";
-import {
-  LanguageModelUsage,
-  ToolApprovalResponse,
-  stepCountIs,
-  streamText,
-} from "ai";
-import { nvidia } from "./provider";
-import { webSearchTool } from "./tools/websearch";
-import { subAgentTool } from "./tools";
-import {
-  discoverSkills,
-  discoverSkillsTool,
-  loadSkillTool,
-  sdbx,
-} from "./tools/skill";
-import { grepTool } from "./tools/grep";
-import { runCommandTool } from "./tools/command";
+import type { LanguageModelUsage } from "ai";
+import { runAgentTurn } from "./agent";
 import { theme, colors } from "./theme";
-import { MessageView, SimpleMessageView } from "./components/MessageView";
+import { MessageView } from "./components/MessageView";
 import { ToolCallView } from "./components/ToolCallView";
 import { StatusBar } from "./components/StatusBar";
 import { CommandPalette } from "./components/CommandPalette";
@@ -27,15 +11,7 @@ import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { config } from "./utils/config";
 import { saveSession, loadSession, clearSession } from "./utils/persistence";
-import {
-  prepareMessages,
-  compactMemoryTool,
-  calculateTotalTokens,
-  shouldCompact,
-  DEFAULT_MEMORY_CONFIG,
-  loadStoredMemory,
-  estimateTokens,
-} from "./context/memory";
+import { loadStoredMemory } from "./context/memory";
 import type { Message, ToolCall, PendingApproval } from "./types";
 
 export function App() {
@@ -181,207 +157,29 @@ export function App() {
 
       abortControllerRef.current = new AbortController();
 
-      // Memory management
-      const needsCompaction = shouldCompact(messages, DEFAULT_MEMORY_CONFIG, prompt);
-
-      let messagesToSend: any[] = newMessages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      }));
-
-      if (conversationSummary) {
-        messagesToSend = [
-          { role: "system", content: `[Earlier Conversation Summary]: ${conversationSummary}` },
-          ...messagesToSend,
-        ];
-      }
-
-      // Compact memory if needed
-      if (needsCompaction) {
-        setIsCompacting(true);
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: "Compacting memory..." },
-        ]);
-
-        try {
-          const prepared = await prepareMessages(
-            messages,
-            DEFAULT_MEMORY_CONFIG,
-            nvidia(selectedModel),
-            abortControllerRef.current.signal
-          );
-
-          messagesToSend = prepared.messages.map((m) => ({
-            role: m.role as "user" | "assistant",
-            content: m.content,
-          }));
-
-          if (prepared.summary) {
-            setConversationSummary(prepared.summary);
-          }
-
-          setMessages((prev) => prev.slice(0, -1));
-        } catch (err: any) {
-          if (err?.name === "AbortError") {
-            setIsCompacting(false);
-            return;
-          }
-          console.error("Memory compaction failed:", err);
-        } finally {
-          setIsCompacting(false);
-        }
-      }
-
-      // Streaming
       try {
-        while (true) {
-          const result = streamText({
-            model: nvidia(selectedModel),
-            system: config.systemPrompt,
-            messages: messagesToSend,
-            stopWhen: stepCountIs(5),
-            abortSignal: abortControllerRef.current?.signal,
-            tools: {
-              web_search: webSearchTool,
-              subagent: subAgentTool,
-              load_skill: loadSkillTool,
-              discoverSkills: discoverSkillsTool,
-              grep: grepTool,
-              run_command: runCommandTool,
-              compact_memory: compactMemoryTool,
-            },
-            experimental_context: {
-              sandbox: sdbx,
-              skills: await discoverSkills(sdbx, [".agents"]),
-            },
-            onFinish: ({ usage }) => {
-              setSessionUsage(usage);
-              setCumulativeTokens((prev) => ({
-                input: prev.input + (usage?.inputTokens ?? 0),
-                output: prev.output + (usage?.outputTokens ?? 0),
-                total: prev.total + (usage?.totalTokens ?? 0),
-              }));
-            },
-          });
-
-          let fullText = "";
-          for await (const chunk of result.textStream) {
-            fullText += chunk;
-            setStreamText(fullText);
-          }
-
-          const [content, response] = await Promise.all([
-            result.content,
-            result.response,
-          ]);
-
-          const approvalRequests = content.filter(
-            (p) => p.type === "tool-approval-request"
-          );
-
-          if (approvalRequests.length === 0) {
-            const newIndex = messages.length;
-            setMessages((prev) => [
-              ...prev,
-              { role: "assistant", content: fullText },
-            ]);
-            setToolCalls((prev) =>
-              prev.map((tc) =>
-                tc.assistantMessageIndex === -1
-                  ? { ...tc, assistantMessageIndex: newIndex }
-                  : tc
-              )
-            );
-            setStreamText("");
-            break;
-          }
-
-          setStreamText("");
-
-          // Add pending tool calls
-          const pendingToolCalls: ToolCall[] = approvalRequests.map((req) => {
-            const r = req as any;
-            return {
-              id: r.approvalId,
-              assistantMessageIndex: -1,
-              name: r.toolCall.toolName,
-              args: r.toolCall.input,
-              status: "pending" as const,
-              timestamp: new Date(),
-            };
-          });
-          setToolCalls((prev) => [...prev, ...pendingToolCalls]);
-
-          // Handle approvals
-          const approvals: ToolApprovalResponse[] = [];
-          for (const req of approvalRequests) {
-            const r = req as any;
-            const approved = await askUserApproval(
-              r.toolCall.toolName,
-              r.toolCall.input
-            );
-
-            setToolCalls((prev) =>
-              prev.map((tc) =>
-                tc.id === r.approvalId
-                  ? { ...tc, status: approved ? "approved" : "denied" }
-                  : tc
-              )
-            );
-
-            if (approved) {
-              setToolCalls((prev) =>
-                prev.map((tc) =>
-                  tc.id === r.approvalId ? { ...tc, status: "running" as const } : tc
-                )
-              );
-            }
-
-            approvals.push({
-              type: "tool-approval-response",
-              approvalId: r.approvalId,
-              approved,
-            });
-          }
-
-          messagesToSend = [
-            ...messagesToSend,
-            ...(response.messages as any[]),
-            { role: "tool", content: approvals },
-          ];
-
-          setToolCalls((prev) =>
-            prev.map((tc) =>
-              tc.status === "running" ? { ...tc, status: "completed" } : tc
-            )
-          );
-        }
-      } catch (err: any) {
-        const isAbortError =
-          err?.name === "AbortError" ||
-          err?.message?.includes("abort") ||
-          (err?.cause && (err?.cause as any)?.name === "AbortError");
-
-        const newIndex = messages.length;
-        if (isAbortError) {
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: "Generation cancelled." },
-          ]);
-        } else {
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: `Error: ${err?.message || "Failed to reach LLM"}` },
-          ]);
-        }
-        setToolCalls((prev) =>
-          prev.map((tc) =>
-            tc.assistantMessageIndex === -1
-              ? { ...tc, assistantMessageIndex: newIndex }
-              : tc
-          )
-        );
+        await runAgentTurn({
+          prompt: prompt.trim(),
+          messages,
+          messagesWithPrompt: newMessages,
+          selectedModel,
+          conversationSummary,
+          abortSignal: abortControllerRef.current.signal,
+          askUserApproval,
+          onMessagesChange: setMessages,
+          onToolCallsChange: setToolCalls,
+          onStreamText: setStreamText,
+          onCompactingChange: setIsCompacting,
+          onConversationSummary: setConversationSummary,
+          onUsage: (usage) => {
+            setSessionUsage(usage);
+            setCumulativeTokens((prev) => ({
+              input: prev.input + (usage?.inputTokens ?? 0),
+              output: prev.output + (usage?.outputTokens ?? 0),
+              total: prev.total + (usage?.totalTokens ?? 0),
+            }));
+          },
+        });
       } finally {
         setStreaming(false);
         setStreamText("");
