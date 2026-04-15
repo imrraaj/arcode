@@ -4,25 +4,26 @@ import {
   stepCountIs,
   streamText,
 } from "ai";
-import { nvidia } from "./provider";
-import { config } from "./utils/config";
+
+import { nvidia } from "@/provider";
+import { config } from "@/utils/config";
 import {
   prepareMessages,
   compactMemoryTool,
   shouldCompact,
   DEFAULT_MEMORY_CONFIG,
-} from "./context/memory";
-import { webSearchTool } from "./tools/websearch";
-import { createFileTool, readFileTool, subAgentTool, writeFileTool } from "./tools";
+} from "@/context/memory";
+import { webSearchTool, createFileTool, readFileTool, subAgentTool, writeFileTool } from "@/tools";
 import {
   discoverSkills,
+  DEFAULT_SKILL_DIRECTORIES,
   discoverSkillsTool,
   loadSkillTool,
   sdbx,
-} from "./tools/skill";
-import { grepTool } from "./tools/grep";
-import { runCommandTool } from "./tools/command";
-import type { Message, ToolCall } from "./types";
+} from "@/tools/skill";
+import { grepTool } from "@/tools/grep";
+import { runCommandTool } from "@/tools/command";
+import type { Message, ToolCall } from "@/types";
 
 type StateUpdate<T> = T | ((prev: T) => T);
 
@@ -130,7 +131,7 @@ export async function runAgentTurn({
     while (true) {
       const result = streamText({
         model: nvidia(selectedModel, nvidiaApiKey),
-        system: config.systemPrompt,
+        system: config.prompts.system,
         messages: messagesToSend,
         stopWhen: stepCountIs(5),
         abortSignal,
@@ -148,7 +149,8 @@ export async function runAgentTurn({
         },
         experimental_context: {
           sandbox: sdbx,
-          skills: await discoverSkills(sdbx, [".agents"]),
+          skillsDirectories: DEFAULT_SKILL_DIRECTORIES,
+          skills: await discoverSkills(sdbx, DEFAULT_SKILL_DIRECTORIES),
           nvidiaApiKey,
         },
         onFinish: ({ usage }) => onUsage(usage),

@@ -1,11 +1,8 @@
-import { readFile, writeFile, mkdir, access, readdir } from "fs/promises";
+import { readFile, writeFile, readdir } from "fs/promises";
 import { join } from "path";
-import type { Message, ToolCall } from "../types";
-import { WORKSPACE_ROOT } from "./workspace";
-
-const DATA_DIR = process.env.ARC_DATA_DIR ?? join(WORKSPACE_ROOT, ".arc");
-const SESSIONS_DIR = join(DATA_DIR, "sessions");
-const CURRENT_SESSION_FILE = join(DATA_DIR, "current-session.json");
+import type { Message, ToolCall } from "@/types";
+import { config } from "@/utils/config";
+import { ensureArcSessionsDir } from "@/utils/arc-home";
 
 type TokenTotals = {
   input: number;
@@ -39,7 +36,7 @@ export interface SessionMeta {
 }
 
 function sessionFilePath(sessionId: string): string {
-  return join(SESSIONS_DIR, `${sessionId}.json`);
+  return join(config.paths.sessionsDir, `${sessionId}.json`);
 }
 
 function generateSessionId(): string {
@@ -86,33 +83,9 @@ function normalizeSession(raw: Partial<PersistedSession>, sessionId: string): Pe
   };
 }
 
-async function ensureDirs(): Promise<boolean> {
-  try {
-    await access(DATA_DIR);
-  } catch {
-    try {
-      await mkdir(DATA_DIR, { recursive: true });
-    } catch {
-      return false;
-    }
-  }
-
-  try {
-    await access(SESSIONS_DIR);
-    return true;
-  } catch {
-    try {
-      await mkdir(SESSIONS_DIR, { recursive: true });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
 async function readCurrentSessionId(): Promise<string | null> {
   try {
-    const data = await readFile(CURRENT_SESSION_FILE, "utf-8");
+    const data = await readFile(config.paths.currentSessionFile, "utf-8");
     const parsed = JSON.parse(data) as { id?: string };
     return parsed.id ?? null;
   } catch {
@@ -122,7 +95,7 @@ async function readCurrentSessionId(): Promise<string | null> {
 
 async function writeCurrentSessionId(sessionId: string): Promise<void> {
   try {
-    await writeFile(CURRENT_SESSION_FILE, JSON.stringify({ id: sessionId }, null, 2));
+    await writeFile(config.paths.currentSessionFile, JSON.stringify({ id: sessionId }, null, 2));
   } catch {
     // Best-effort only.
   }
@@ -138,7 +111,7 @@ async function readSession(sessionId: string): Promise<PersistedSession | null> 
 }
 
 export async function createSession(model?: string): Promise<PersistedSession | null> {
-  if (!(await ensureDirs())) return null;
+  if (!(await ensureArcSessionsDir())) return null;
 
   const id = generateSessionId();
   const session: PersistedSession = {
@@ -162,11 +135,11 @@ export async function createSession(model?: string): Promise<PersistedSession | 
 }
 
 export async function listSessions(): Promise<SessionMeta[]> {
-  if (!(await ensureDirs())) return [];
+  if (!(await ensureArcSessionsDir())) return [];
 
   let files: string[] = [];
   try {
-    files = await readdir(SESSIONS_DIR);
+    files = await readdir(config.paths.sessionsDir);
   } catch {
     return [];
   }
@@ -204,7 +177,7 @@ export async function saveSession(
   cumulativeTokens?: TokenTotals,
   title?: string
 ): Promise<void> {
-  if (!(await ensureDirs())) return;
+  if (!(await ensureArcSessionsDir())) return;
   const existing = await readSession(sessionId);
   const resolvedTitle =
     title ??
@@ -236,7 +209,7 @@ export async function saveSession(
 }
 
 export async function loadSession(sessionId?: string): Promise<PersistedSession | null> {
-  if (!(await ensureDirs())) return null;
+  if (!(await ensureArcSessionsDir())) return null;
 
   if (sessionId) {
     const session = await readSession(sessionId);
@@ -293,7 +266,7 @@ export async function exportSession(sessionId: string, filepath: string): Promis
 }
 
 export async function importSession(filepath: string): Promise<PersistedSession | null> {
-  if (!(await ensureDirs())) return null;
+  if (!(await ensureArcSessionsDir())) return null;
 
   try {
     const data = await readFile(filepath, "utf-8");

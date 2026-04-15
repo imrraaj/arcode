@@ -1,4 +1,5 @@
-import { theme, colors, getContextColor } from "../theme";
+import { theme, colors } from "../theme";
+import { config } from "@/utils/config";
 
 interface StatusBarProps {
   model: string;
@@ -10,12 +11,9 @@ interface StatusBarProps {
   };
 }
 
-const MODEL_CONTEXT_WINDOW = 32768;
-
 export function StatusBar({ model, msgCount, cumulativeTokens }: StatusBarProps) {
   const totalTokens = cumulativeTokens.total;
-  const ctxPct = Math.min(100, Math.round((totalTokens / MODEL_CONTEXT_WINDOW) * 100));
-  const ctxColorStr = getContextColor(ctxPct).toString();
+  const ctxPct = Math.min(100, Math.round((totalTokens / config.ui.modelContextWindow) * 100));
 
   return (
     <box
@@ -28,8 +26,8 @@ export function StatusBar({ model, msgCount, cumulativeTokens }: StatusBarProps)
 
       <box width="100%" flexDirection="column" gap={2}>
         <text>
-          <strong fg={theme.blue}>arc</strong>
-          <span fg={theme.comment}> v0.2.0</span>
+          <strong fg={theme.blue}>{config.appName}</strong>
+          <span fg={theme.comment}> v{config.version}</span>
         </text>
 
         <box width="100%" flexDirection="column" gap={0}>

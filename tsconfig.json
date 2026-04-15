@@ -11,6 +11,10 @@
     "skipLibCheck": true,
     "outDir": "./dist",
     "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
     "types": ["bun-types"]
   },
   "include": ["src/**/*"]

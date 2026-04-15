@@ -2,7 +2,9 @@ import { YAML } from "bun";
 import { readdir, readFile } from "fs/promises";
 import z from "zod";
 import { tool } from "ai";
-import { resolveWorkspacePath } from "../utils/workspace";
+import { resolveWorkspacePath } from "@/utils/workspace";
+import { config } from "@/utils/config";
+
 interface Sandbox {
     readFile(path: string): Promise<string>;
     readdir(
@@ -19,9 +21,11 @@ export interface SkillMetadata {
     path: string;
 }
 
+export const DEFAULT_SKILL_DIRECTORIES = config.tools.skills.defaultDirectories;
+
 export async function discoverSkills(
     sandbox: Sandbox,
-    directories: string[],
+    directories: readonly string[],
 ): Promise<SkillMetadata[]> {
     const skills: SkillMetadata[] = [];
     const seenNames = new Set<string>();
@@ -68,7 +72,6 @@ export async function discoverSkills(
 export function parseFrontmatter(content: string): { name: string; description: string, path?: string } {
     const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (!match?.[1]) throw new Error('No frontmatter found');
-    // Parse YAML using your preferred library
     return YAML.parse(match[1]) as { name: string; description: string, path?: string };
 }
 
@@ -141,8 +144,17 @@ export const discoverSkillsTool = tool({
     description: "Discover available skills. Use to get an updated list of skills and their descriptions.",
     inputSchema: z.object({}),
     execute: async (_, { experimental_context }) => {
-        const { sandbox } = experimental_context as { sandbox: Sandbox };
-        const skills = await discoverSkills(sandbox, ['.agents']);
+        const {
+            sandbox,
+            skillsDirectories,
+        } = experimental_context as {
+            sandbox: Sandbox;
+            skillsDirectories?: readonly string[];
+        };
+        const directories = skillsDirectories?.length
+            ? skillsDirectories
+            : DEFAULT_SKILL_DIRECTORIES;
+        const skills = await discoverSkills(sandbox, directories);
         return skills.map(s => ({ name: s.name, description: s.description }));
     },
 });

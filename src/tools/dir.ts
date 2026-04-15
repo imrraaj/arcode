@@ -1,7 +1,7 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { mkdir, readdir } from 'fs/promises';
-import { resolveWorkspacePath } from '../utils/workspace';
+import { resolveWorkspacePath } from '@/utils/workspace';
 
 export const createDirTool = tool({
     description: 'Create a new directory',
@@ -29,5 +29,3 @@ export const readDirTool = tool({
         }));
     },
 });
-
-export const dirTools = [createDirTool, readDirTool];

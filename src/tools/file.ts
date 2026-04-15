@@ -2,7 +2,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { dirname } from 'path';
-import { resolveWorkspacePath } from '../utils/workspace';
+import { resolveWorkspacePath } from '@/utils/workspace';
 
 export const writeFileTool = tool({
   description: 'Replace a unique string in a file with new content',
@@ -50,6 +50,3 @@ export const createFileTool = tool({
     return `Created file at ${resolvedPath}`;
   },
 });
-
-
-export const fileTools = [writeFileTool, readFileTool, createFileTool];

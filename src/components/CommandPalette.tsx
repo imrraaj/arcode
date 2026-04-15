@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useKeyboard } from "@opentui/react";
 import { theme, colors } from "../theme";
 import type { LanguageModelUsage } from "ai";
-import { AVAILABLE_MODELS } from "../types";
+import { config } from "@/utils/config";
 import type { SessionMeta } from "../utils/persistence";
 
 interface CommandPaletteProps {
@@ -51,7 +51,7 @@ export function CommandPalette({
 
   const items = useMemo(() => {
     if (mode === "models") {
-      return AVAILABLE_MODELS.filter((model) =>
+      return config.availableModels.filter((model) =>
         model.toLowerCase().includes(query.toLowerCase())
       ).map((model) => ({
         id: model,

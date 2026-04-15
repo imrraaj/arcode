@@ -1,6 +1,6 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { resolveWorkspacePath } from '../utils/workspace';
+import { resolveWorkspacePath } from '@/utils/workspace';
 
 export const grepTool = tool({
     description: 'Search for a regex pattern in files within a directory',

@@ -2,9 +2,9 @@ import { tool, ToolLoopAgent } from 'ai';
 import { z } from 'zod';
 import { createDirTool, readDirTool } from './dir';
 import { createFileTool, readFileTool, writeFileTool } from './file';
-import { nvidia } from '../provider';
+import { nvidia } from '@/provider';
+import { config } from '@/utils/config';
 
-const DEFAULT_SUBAGENT_MODEL = 'qwen/qwen3.5-122b-a10b';
 
 export const subAgentTool = tool({
     description: 'Run a sub-agent with a given prompt and tools',
@@ -18,7 +18,7 @@ export const subAgentTool = tool({
         if (!nvidiaApiKey) {
             return "Error: NVIDIA API key is not configured.";
         }
-        const selectedModel = model?.trim() ? model.trim() : DEFAULT_SUBAGENT_MODEL;
+        const selectedModel = model?.trim() ? model.trim() : config.defaultModel;
         const agent = new ToolLoopAgent({
             model: nvidia(selectedModel, nvidiaApiKey),
             tools: {
@@ -28,7 +28,7 @@ export const subAgentTool = tool({
                 createDir: createDirTool,
                 readDir: readDirTool,
             },
-            instructions: 'You are a helpful assistant running a sub-agent. Use file paths relative to the project root unless an absolute path is provided.',
+            instructions: config.prompts.subAgent,
         });
         const response = await agent.generate({
             prompt,

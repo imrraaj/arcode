@@ -1,32 +1,15 @@
-import { access, mkdir, readFile, writeFile, chmod } from "fs/promises";
-import { join } from "path";
-import { WORKSPACE_ROOT } from "./workspace";
-
-const DATA_DIR = process.env.ARC_DATA_DIR ?? join(WORKSPACE_ROOT, ".arc");
-const SETTINGS_FILE = join(DATA_DIR, "config.json");
+import { readFile, writeFile, chmod } from "fs/promises";
+import { config } from "@/utils/config";
+import { ensureArcHomeDir, pathExists } from "@/utils/arc-home";
 
 export interface ArcSettings {
   nvidiaApiKey?: string;
 }
 
-async function ensureDir(): Promise<boolean> {
-  try {
-    await access(DATA_DIR);
-    return true;
-  } catch {
-    try {
-      await mkdir(DATA_DIR, { recursive: true, mode: 0o700 });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
 export async function loadSettings(): Promise<ArcSettings> {
   try {
-    await access(SETTINGS_FILE);
-    const data = await readFile(SETTINGS_FILE, "utf-8");
+    if (!(await pathExists(config.paths.settingsFile))) return {};
+    const data = await readFile(config.paths.settingsFile, "utf-8");
     return JSON.parse(data) as ArcSettings;
   } catch {
     return {};
@@ -34,17 +17,17 @@ export async function loadSettings(): Promise<ArcSettings> {
 }
 
 export async function saveSettings(settings: ArcSettings): Promise<boolean> {
-  if (!(await ensureDir())) return false;
+  if (!(await ensureArcHomeDir())) return false;
 
   try {
-    await writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), {
-      mode: 0o600,
+    await writeFile(config.paths.settingsFile, JSON.stringify(settings, null, 2), {
+      mode: config.storage.settingsFileMode,
     });
-    await chmod(SETTINGS_FILE, 0o600);
+    await chmod(config.paths.settingsFile, config.storage.settingsFileMode);
     return true;
   } catch {
     return false;
   }
 }
 
-export const SETTINGS_FILE_PATH = SETTINGS_FILE;
+export const SETTINGS_FILE_PATH = config.paths.settingsFile;

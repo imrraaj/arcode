@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { theme, colors } from "../theme";
+import { config } from "@/utils/config";
 
 interface ApiKeyPromptProps {
   onSubmit: (apiKey: string) => void;
@@ -39,7 +40,7 @@ export function ApiKeyPrompt({ onSubmit, saving, error }: ApiKeyPromptProps) {
       </box>
 
       <box width="100%" paddingX={1}>
-        <text fg={theme.comment}>Stored at .arc/config.json</text>
+        <text fg={theme.comment}>Stored at {config.ui.apiKeyStorageLabel}</text>
       </box>
 
       <box width="100%" paddingX={1} flexDirection="row">

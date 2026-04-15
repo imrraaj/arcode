@@ -3,6 +3,7 @@ import { z } from "zod";
 import { tool } from "ai";
 import type { Message } from "../types";
 import { saveMemory, loadMemory, clearMemory } from "./storage.js";
+import { config as appConfig } from "@/utils/config";
 
 export interface MemoryConfig {
   windowSize: number;
@@ -11,29 +12,14 @@ export interface MemoryConfig {
   compactionThreshold: number;
 }
 
-export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
-  windowSize: 10,
-  contextWindow: 32000,
-  safetyBuffer: 2000,
-  compactionThreshold: 0.9,
-};
+export const DEFAULT_MEMORY_CONFIG: MemoryConfig = appConfig.memory;
 
-const SUMMARIZE_SYSTEM_PROMPT = `You are a conversation summarizer. Your task is to summarize the given conversation concisely while preserving key information.
-
-Focus on capturing:
-1. What the user asked or requested
-2. What actions were taken or tools used
-3. Important results, decisions, or conclusions
-4. Any context that would be needed to understand future messages
-
-Be concise but comprehensive. Use bullet points if helpful.`;
-
-const SUMMARIZE_USER_PROMPT = (messages: Message[]) => {
+const buildSummarizePrompt = (messages: Message[]) => {
   const conversationText = messages
     .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
     .join("\n\n");
 
-  return `Summarize this conversation concisely:\n\n${conversationText}\n\nProvide a summary that captures the key points, decisions, and context.`;
+  return appConfig.prompts.summarizeUser(conversationText);
 };
 
 export function estimateTokens(text: string): number {
@@ -86,8 +72,8 @@ export async function summarizeMessages(
   try {
     const result = await generateText({
       model,
-      system: SUMMARIZE_SYSTEM_PROMPT,
-      prompt: SUMMARIZE_USER_PROMPT(messages),
+      system: appConfig.prompts.summarizeSystem,
+      prompt: buildSummarizePrompt(messages),
       abortSignal: signal,
     });
 

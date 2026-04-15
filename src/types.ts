@@ -1,12 +1,11 @@
 import type { LanguageModelUsage } from "ai";
+import { config } from "@/utils/config";
 
-// Message types
 export interface Message {
   role: "user" | "assistant" | "system";
   content: string;
 }
 
-// Tool call types
 export interface ToolCall {
   id: string;
   assistantMessageIndex: number;
@@ -55,12 +54,7 @@ export interface Command {
 }
 
 // Model options
-export const AVAILABLE_MODELS = [
-  "qwen/qwen3.5-122b-a10b",
-  "meta/llama-3.1-70b-instruct",
-  "mistralai/mixtral-8x7b-instruct-v0.1",
-  "mistralai/devstral-2-123b-instruct-2512",
-] as const;
+export const AVAILABLE_MODELS = config.availableModels;
 
 export type ModelId = (typeof AVAILABLE_MODELS)[number];
 
@@ -73,14 +67,14 @@ export interface Keybinding {
   description: string;
 }
 
-export const KEYBINDINGS = {
-  submit: { key: "return", description: "Submit message" },
-  commandPalette: { key: "k", ctrl: true, description: "Open command palette" },
-  exit: { key: "escape", description: "Exit/cancel" },
-  scrollUp: { key: "up", description: "Scroll up" },
-  scrollDown: { key: "down", description: "Scroll down" },
-  pageUp: { key: "pageup", description: "Page up" },
-  pageDown: { key: "pagedown", description: "Page down" },
-  home: { key: "home", description: "Go to top" },
-  end: { key: "end", description: "Go to bottom" },
-} as const;
+// export const KEYBINDINGS = {
+//   submit: { key: "return", description: "Submit message" },
+//   commandPalette: { key: "k", ctrl: true, description: "Open command palette" },
+//   exit: { key: "escape", description: "Exit/cancel" },
+//   scrollUp: { key: "up", description: "Scroll up" },
+//   scrollDown: { key: "down", description: "Scroll down" },
+//   pageUp: { key: "pageup", description: "Page up" },
+//   pageDown: { key: "pagedown", description: "Page down" },
+//   home: { key: "home", description: "Go to top" },
+//   end: { key: "end", description: "Go to bottom" },
+// } as const;

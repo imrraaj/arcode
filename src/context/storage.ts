@@ -1,7 +1,7 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from "fs";
-import { join } from "path";
-import type { Message } from "../types";
-import { WORKSPACE_ROOT } from "../utils/workspace";
+import { readFile, writeFile, unlink } from "fs/promises";
+import type { Message } from "@/types";
+import { config } from "@/utils/config";
+import { ensureArcHomeDir, pathExists } from "@/utils/arc-home";
 
 export interface StoredMemory {
   summary: string;
@@ -9,25 +9,11 @@ export interface StoredMemory {
   lastUpdated: string;
 }
 
-const ARC_DIR = process.env.ARC_DATA_DIR ?? join(WORKSPACE_ROOT, ".arc");
-const MEMORY_FILE = join(ARC_DIR, "memory.json");
-
-export async function ensureArcDir(): Promise<boolean> {
-  try {
-    if (!existsSync(ARC_DIR)) {
-      mkdirSync(ARC_DIR, { recursive: true });
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function saveMemory(
   summary: string,
   recentMessages: Message[]
 ): Promise<void> {
-  if (!(await ensureArcDir())) return;
+  if (!(await ensureArcHomeDir())) return;
 
   const data: StoredMemory = {
     summary,
@@ -36,7 +22,7 @@ export async function saveMemory(
   };
 
   try {
-    writeFileSync(MEMORY_FILE, JSON.stringify(data, null, 2));
+    await writeFile(config.paths.memoryFile, JSON.stringify(data, null, 2));
   } catch {
     // Memory is best-effort; storage failures should not interrupt a turn.
   }
@@ -44,13 +30,13 @@ export async function saveMemory(
 
 export async function loadMemory(): Promise<StoredMemory | null> {
   try {
-    if (!(await ensureArcDir())) return null;
+    if (!(await ensureArcHomeDir())) return null;
 
-    if (!existsSync(MEMORY_FILE)) {
+    if (!(await pathExists(config.paths.memoryFile))) {
       return null;
     }
 
-    const content = readFileSync(MEMORY_FILE, "utf-8");
+    const content = await readFile(config.paths.memoryFile, "utf-8");
     const data = JSON.parse(content) as StoredMemory;
     return data;
   } catch {
@@ -60,9 +46,9 @@ export async function loadMemory(): Promise<StoredMemory | null> {
 
 export async function clearMemory(): Promise<void> {
   try {
-    if (!(await ensureArcDir())) return;
-    if (existsSync(MEMORY_FILE)) {
-      unlinkSync(MEMORY_FILE);
+    if (!(await ensureArcHomeDir())) return;
+    if (await pathExists(config.paths.memoryFile)) {
+      await unlink(config.paths.memoryFile);
     }
   } catch {
     // Memory is best-effort; storage may be unavailable.
@@ -71,7 +57,7 @@ export async function clearMemory(): Promise<void> {
 
 export async function hasStoredMemory(): Promise<boolean> {
   try {
-    return existsSync(MEMORY_FILE);
+    return pathExists(config.paths.memoryFile);
   } catch {
     return false;
   }

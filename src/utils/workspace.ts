@@ -1,8 +1,6 @@
 import { resolve, relative, isAbsolute } from "path";
 
-export const WORKSPACE_ROOT =
-  process.env.ARC_WORKSPACE_ROOT ??
-  resolve(process.cwd());
+export const WORKSPACE_ROOT = resolve(process.cwd());
 
 export function isInsideWorkspace(path: string): boolean {
   const rel = relative(WORKSPACE_ROOT, path);

@@ -1,24 +1,10 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { resolveWorkspacePath, WORKSPACE_ROOT } from '../utils/workspace';
-
-const MAX_OUTPUT_BYTES = 50_000; // 50 KB cap to avoid flooding context
-
-/**
- * Patterns that are unconditionally blocked regardless of user approval.
- * These represent irreversible or catastrophic system operations.
- */
-const BLOCKED_PATTERNS: RegExp[] = [
-    /rm\s+(-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*)\s+\//i, // rm -rf /  and variants
-    /\bdd\b.*of=\/dev\//i,           // dd writing to raw devices
-    /\bmkfs\b/i,                     // filesystem format
-    /\bshutdown\b|\breboot\b|\bhalt\b|\bpoweroff\b/i, // system shutdown
-    /:\(\)\s*\{.*\|.*&.*\}/,         // fork bomb :(){ :|:& };:
-    /\bsudo\s+rm\b/i,                // sudo rm
-];
+import { resolveWorkspacePath, WORKSPACE_ROOT } from '@/utils/workspace';
+import { config } from '@/utils/config';
 
 function isBlocked(command: string): string | null {
-    for (const pattern of BLOCKED_PATTERNS) {
+    for (const pattern of config.tools.command.blockedPatterns) {
         if (pattern.test(command)) {
             return `Blocked: command matches unsafe pattern (${pattern.source})`;
         }
@@ -27,9 +13,10 @@ function isBlocked(command: string): string | null {
 }
 
 function truncate(text: string): string {
-    if (text.length <= MAX_OUTPUT_BYTES) return text;
-    const kept = text.slice(0, MAX_OUTPUT_BYTES);
-    return `${kept}\n... [truncated — output exceeded ${MAX_OUTPUT_BYTES} bytes]`;
+    const maxOutputBytes = config.tools.command.maxOutputBytes;
+    if (text.length <= maxOutputBytes) return text;
+    const kept = text.slice(0, maxOutputBytes);
+    return `${kept}\n... [truncated — output exceeded ${maxOutputBytes} bytes]`;
 }
 
 // Exported so the LLM can call it to kill a hanging process by PID.
@@ -38,7 +25,7 @@ const runningProcs = new Map<number, ReturnType<typeof Bun.spawn>>();
 export const runCommandTool = tool({
     description:
         'Run a shell command in the project working directory and return stdout/stderr. ' +
-        'Specify timeoutSeconds (max 120) to avoid hangs — default is 30s. ' +
+        `Specify timeoutSeconds (max ${config.tools.command.maxTimeoutSeconds}) to avoid hangs — default is ${config.tools.command.defaultTimeoutSeconds}s. ` +
         'The command is killed automatically when the timeout is reached. ' +
         'Always requires user approval before execution.',
     inputSchema: z.object({
@@ -46,10 +33,12 @@ export const runCommandTool = tool({
         timeoutSeconds: z
             .number()
             .min(1)
-            .max(120)
-            .default(30)
+            .max(config.tools.command.maxTimeoutSeconds)
+            .default(config.tools.command.defaultTimeoutSeconds)
             .optional()
-            .describe('Kill the process after this many seconds (1-120, default 30)'),
+            .describe(
+                `Kill the process after this many seconds (1-${config.tools.command.maxTimeoutSeconds}, default ${config.tools.command.defaultTimeoutSeconds})`
+            ),
         cwd: z
             .string()
             .optional()
@@ -59,7 +48,11 @@ export const runCommandTool = tool({
             ),
     }),
     needsApproval: true,
-    execute: async ({ command, timeoutSeconds = 30, cwd }, { abortSignal }) => {
+    execute: async ({
+        command,
+        timeoutSeconds = config.tools.command.defaultTimeoutSeconds,
+        cwd,
+    }, { abortSignal }) => {
         // Safety: static block check before any execution
         const blocked = isBlocked(command);
         if (blocked) return blocked;
@@ -72,7 +65,10 @@ export const runCommandTool = tool({
             return error instanceof Error ? error.message : 'Invalid working directory';
         }
 
-        const timeoutMs = Math.min(timeoutSeconds, 120) * 1000;
+        const timeoutMs = Math.min(
+            timeoutSeconds,
+            config.tools.command.maxTimeoutSeconds,
+        ) * 1000;
 
         const proc = Bun.spawn(['sh', '-c', command], {
             cwd: safeCwd,
@@ -80,7 +76,6 @@ export const runCommandTool = tool({
             stderr: 'pipe',
             env: {
                 ...process.env,
-                // Prevent interactive prompts from hanging the process
                 DEBIAN_FRONTEND: 'noninteractive',
                 CI: '1',
             },

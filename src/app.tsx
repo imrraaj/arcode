@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
 import type { LanguageModelUsage } from "ai";
-import { runAgentTurn } from "./agent";
-import { theme, colors } from "./theme";
-import { MessageView } from "./components/MessageView";
-import { ToolCallView } from "./components/ToolCallView";
-import { StatusBar } from "./components/StatusBar";
-import { CommandPalette } from "./components/CommandPalette";
-import { ApprovalPrompt } from "./components/ApprovalPrompt";
-import { ApiKeyPrompt } from "./components/ApiKeyPrompt";
-import { WelcomeScreen } from "./components/WelcomeScreen";
-import { config } from "./utils/config";
+import { runAgentTurn } from "@/agent";
+import { theme, colors } from "@/theme";
+import { MessageView } from "@/components/MessageView";
+import { ToolCallView } from "@/components/ToolCallView";
+import { StatusBar } from "@/components/StatusBar";
+import { CommandPalette } from "@/components/CommandPalette";
+import { ApprovalPrompt } from "@/components/ApprovalPrompt";
+import { ApiKeyPrompt } from "@/components/ApiKeyPrompt";
+import { WelcomeScreen } from "@/components/WelcomeScreen";
+import { Indicator } from "@/components/Indicator"; 
+import { config } from "@/utils/config";
 import {
   saveSession,
   loadSession,
@@ -19,9 +20,9 @@ import {
   createSession,
   type SessionMeta,
   type PersistedSession,
-} from "./utils/persistence";
-import { loadSettings, saveSettings } from "./utils/settings";
-import type { Message, ToolCall, PendingApproval } from "./types";
+} from "@/utils/persistence";
+import { loadSettings, saveSettings } from "@/utils/settings";
+import type { Message, ToolCall, PendingApproval } from "@/types";
 
 export function App() {
   const renderer = useRenderer();
@@ -39,7 +40,7 @@ export function App() {
     output: 0,
     total: 0,
   });
-  const [selectedModel, setSelectedModel] = useState(config.defaultModel);
+  const [selectedModel, setSelectedModel] = useState<string>(config.defaultModel);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [showPalette, setShowPalette] = useState(false);
@@ -199,7 +200,7 @@ export function App() {
     setSavingApiKey(true);
     const ok = await saveSettings({ nvidiaApiKey: apiKey });
     if (!ok) {
-      setApiKeyError("Could not save key to .arc/config.json");
+      setApiKeyError(`Could not save key to ${config.ui.apiKeyStorageLabel}`);
       setSavingApiKey(false);
       return;
     }
@@ -374,6 +375,7 @@ export function App() {
               {streamingMessage && (
                 <MessageView msg={streamingMessage} width={mainWidth - 4} isStreaming={true} />
               )}
+
             </scrollbox>
           </box>
         )}
@@ -409,7 +411,7 @@ export function App() {
           <box width="100%" flexDirection="row" gap={1} paddingBottom={1}>
             <text><strong fg={theme.blue}>{selectedModel}</strong></text>
             {streaming && (
-              <text fg={theme.comment}>⏳ Generating...</text>
+              <Indicator />
             )}
           </box>
         </box>
