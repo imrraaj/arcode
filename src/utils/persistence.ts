@@ -39,6 +39,23 @@ function sessionFilePath(sessionId: string): string {
   return join(config.paths.sessionsDir, `${sessionId}.json`);
 }
 
+async function readJson<T>(path: string): Promise<T | null> {
+  try {
+    return JSON.parse(await readFile(path, "utf-8")) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function writeJson(path: string, value: unknown): Promise<boolean> {
+  try {
+    await writeFile(path, JSON.stringify(value, null, 2));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function generateSessionId(): string {
   const rand = Math.random().toString(36).slice(2, 8);
   return `${Date.now()}-${rand}`;
@@ -84,30 +101,17 @@ function normalizeSession(raw: Partial<PersistedSession>, sessionId: string): Pe
 }
 
 async function readCurrentSessionId(): Promise<string | null> {
-  try {
-    const data = await readFile(config.paths.currentSessionFile, "utf-8");
-    const parsed = JSON.parse(data) as { id?: string };
-    return parsed.id ?? null;
-  } catch {
-    return null;
-  }
+  const current = await readJson<{ id?: string }>(config.paths.currentSessionFile);
+  return current?.id ?? null;
 }
 
 async function writeCurrentSessionId(sessionId: string): Promise<void> {
-  try {
-    await writeFile(config.paths.currentSessionFile, JSON.stringify({ id: sessionId }, null, 2));
-  } catch {
-    // Best-effort only.
-  }
+  await writeJson(config.paths.currentSessionFile, { id: sessionId });
 }
 
 async function readSession(sessionId: string): Promise<PersistedSession | null> {
-  try {
-    const data = await readFile(sessionFilePath(sessionId), "utf-8");
-    return normalizeSession(JSON.parse(data) as PersistedSession, sessionId);
-  } catch {
-    return null;
-  }
+  const session = await readJson<Partial<PersistedSession>>(sessionFilePath(sessionId));
+  return session ? normalizeSession(session, sessionId) : null;
 }
 
 export async function createSession(model?: string): Promise<PersistedSession | null> {
@@ -125,13 +129,9 @@ export async function createSession(model?: string): Promise<PersistedSession | 
     cumulativeTokens: { ...EMPTY_TOKENS },
   };
 
-  try {
-    await writeFile(sessionFilePath(id), JSON.stringify(session, null, 2));
-    await writeCurrentSessionId(id);
-    return session;
-  } catch {
-    return null;
-  }
+  if (!(await writeJson(sessionFilePath(id), session))) return null;
+  await writeCurrentSessionId(id);
+  return session;
 }
 
 export async function listSessions(): Promise<SessionMeta[]> {
@@ -184,27 +184,19 @@ export async function saveSession(
     existing?.title ??
     deriveTitle(messages, sessionId);
 
-  try {
-    await writeFile(
-      sessionFilePath(sessionId),
-      JSON.stringify(
-        {
-          id: sessionId,
-          title: resolvedTitle,
-          messages,
-          toolCalls,
-          timestamp: new Date().toISOString(),
-          model,
-          conversationSummary: conversationSummary ?? existing?.conversationSummary ?? "",
-          cumulativeTokens: normalizeTokens(cumulativeTokens ?? existing?.cumulativeTokens),
-        } satisfies PersistedSession,
-        null,
-        2
-      )
-    );
+  const session: PersistedSession = {
+    id: sessionId,
+    title: resolvedTitle,
+    messages,
+    toolCalls,
+    timestamp: new Date().toISOString(),
+    model,
+    conversationSummary: conversationSummary ?? existing?.conversationSummary ?? "",
+    cumulativeTokens: normalizeTokens(cumulativeTokens ?? existing?.cumulativeTokens),
+  };
+
+  if (await writeJson(sessionFilePath(sessionId), session)) {
     await writeCurrentSessionId(sessionId);
-  } catch {
-    // Persistence is best-effort.
   }
 }
 
@@ -246,37 +238,4 @@ export async function clearSession(sessionId: string): Promise<void> {
     { ...EMPTY_TOKENS },
     existing?.title
   );
-}
-
-export async function getCurrentSessionId(): Promise<string | null> {
-  const loaded = await loadSession();
-  if (!loaded) return null;
-  return loaded.id;
-}
-
-export async function exportSession(sessionId: string, filepath: string): Promise<void> {
-  const session = await loadSession(sessionId);
-  if (!session) return;
-
-  try {
-    await writeFile(filepath, JSON.stringify(session, null, 2));
-  } catch {
-    // Best-effort only.
-  }
-}
-
-export async function importSession(filepath: string): Promise<PersistedSession | null> {
-  if (!(await ensureArcSessionsDir())) return null;
-
-  try {
-    const data = await readFile(filepath, "utf-8");
-    const parsed = JSON.parse(data) as Partial<PersistedSession>;
-    const id = parsed.id ?? generateSessionId();
-    const session = normalizeSession(parsed, id);
-    await writeFile(sessionFilePath(id), JSON.stringify(session, null, 2));
-    await writeCurrentSessionId(id);
-    return session;
-  } catch {
-    return null;
-  }
 }

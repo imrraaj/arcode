@@ -2,7 +2,6 @@ import { generateText } from "ai";
 import { z } from "zod";
 import { tool } from "ai";
 import type { Message } from "../types";
-import { saveMemory, loadMemory, clearMemory } from "./storage.js";
 import { config as appConfig } from "@/utils/config";
 
 export interface MemoryConfig {
@@ -127,33 +126,12 @@ export async function prepareMessages(
     ...recent,
   ];
 
-  if (summary) {
-    await saveMemory(summary, recent);
-  }
-
   return {
     messages: preparedMessages,
     summary,
     wasCompacted: true,
     needsCompaction: true,
   };
-}
-
-export async function loadStoredMemory(): Promise<{
-  summary: string;
-  recentMessages: Message[];
-} | null> {
-  const stored = await loadMemory();
-  if (!stored) return null;
-
-  return {
-    summary: stored.summary,
-    recentMessages: stored.recentMessages,
-  };
-}
-
-export async function clearStoredMemory(): Promise<void> {
-  await clearMemory();
 }
 
 export const compactMemoryTool = tool({

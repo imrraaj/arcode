@@ -1,11 +1,11 @@
 import { homedir } from "os";
 import { join } from "path";
 import { WORKSPACE_ROOT } from "@/utils/workspace";
+import { prompts } from "@/prompts";
 
 const arcHomeDir = join(homedir(), ".arc");
 const arcSessionsDir = join(arcHomeDir, "sessions");
 const arcSettingsFile = join(arcHomeDir, "config.json");
-const arcMemoryFile = join(arcHomeDir, "memory.json");
 const arcCurrentSessionFile = join(arcHomeDir, "current-session.json");
 
 const availableModels = [
@@ -14,9 +14,6 @@ const availableModels = [
     "z-ai/glm5",
     "minimaxai/minimax-m2.7",
 ] as const;
-
-const systemPrompt = `You are Arc, an expert coding assistant running inside a CLI terminal. You help users understand, write, debug, and refactor code. Keep responses concise and well-formatted. Use markdown for code blocks. When showing code, always specify the language for syntax highlighting. Be direct — no fluff.`;
-const subAgentPrompt = `You are a helpful sub-agent assisting the main assistant in performing a specific task. You will be given a clear instruction and should provide a concise response that directly addresses the task. Keep your response focused and to the point.`;
 
 export const config = {
     appName: "arc",
@@ -28,7 +25,6 @@ export const config = {
         dataDir: arcHomeDir,
         sessionsDir: arcSessionsDir,
         settingsFile: arcSettingsFile,
-        memoryFile: arcMemoryFile,
         currentSessionFile: arcCurrentSessionFile,
     },
 
@@ -49,20 +45,7 @@ export const config = {
         apiKeyStorageLabel: "~/.arc/config.json",
     },
 
-    prompts: {
-        system: systemPrompt,
-        subAgent: subAgentPrompt,
-        summarizeSystem: `You are a conversation summarizer. Your task is to summarize the given conversation concisely while preserving key information.
-Focus on capturing:
-1. What the user asked or requested
-2. What actions were taken or tools used
-3. Important results, decisions, or conclusions
-4. Any context that would be needed to understand future messages
-
-Be concise but comprehensive. Use bullet points if helpful.`,
-        summarizeUser: (conversationText: string) =>
-            `Summarize this conversation concisely:\n\n${conversationText}\n\nProvide a summary that captures the key points, decisions, and context.`,
-    },
+    prompts,
 
     tools: {
         command: {

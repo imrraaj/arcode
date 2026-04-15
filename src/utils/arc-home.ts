@@ -1,14 +1,5 @@
-import { access, mkdir } from "fs/promises";
+import { mkdir } from "fs/promises";
 import { config } from "@/utils/config";
-
-export async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export async function ensureDirectory(path: string, mode: number): Promise<boolean> {
   try {
