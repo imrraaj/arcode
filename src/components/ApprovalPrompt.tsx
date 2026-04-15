@@ -37,24 +37,20 @@ export function ApprovalPrompt({ toolName, args, onRespond }: ApprovalPromptProp
       borderColor={theme.yellow}
       flexDirection="column"
     >
-      {/* Header */}
       <box width="100%" paddingX={1}>
         <text fg={theme.yellow}>
           <strong>⚠ Tool approval needed</strong>
         </text>
       </box>
 
-      {/* Tool name */}
       <box width="100%" paddingX={1} marginTop={1}>
         <text><strong>{toolName}</strong></text>
       </box>
 
-      {/* Args */}
       <box width="100%" paddingX={1} marginTop={1}>
         <text fg={theme.comment}>{truncatedArgs}</text>
       </box>
 
-      {/* Options */}
       <box width="100%" flexDirection="column" marginTop={1} paddingX={1}>
         <box
           width="100%"
@@ -76,7 +72,6 @@ export function ApprovalPrompt({ toolName, args, onRespond }: ApprovalPromptProp
         </box>
       </box>
 
-      {/* Footer */}
       <box width="100%" marginTop={1} paddingX={1}>
         <text fg={theme.comment}>[↑↓] select [enter] confirm [esc] deny</text>
       </box>

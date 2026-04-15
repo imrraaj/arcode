@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useKeyboard, useTerminalDimensions, useRenderer } from "@opentui/react";
-import type { LanguageModelUsage } from "ai";
 import { runAgentTurn } from "@/agent";
 import { theme, colors } from "@/theme";
 import { MessageView } from "@/components/MessageView";
@@ -10,7 +9,7 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { ApprovalPrompt } from "@/components/ApprovalPrompt";
 import { ApiKeyPrompt } from "@/components/ApiKeyPrompt";
 import { WelcomeScreen } from "@/components/WelcomeScreen";
-import { Indicator } from "@/components/Indicator"; 
+import { Indicator } from "@/components/Indicator";
 import { config } from "@/utils/config";
 import {
   saveSession,
@@ -20,31 +19,25 @@ import {
   createSession,
   type SessionMeta,
   type PersistedSession,
-} from "@/utils/persistence";
+} from "@/storage/session-store";
 import { loadSettings, saveSettings } from "@/utils/settings";
 import type { Message, ToolCall, PendingApproval } from "@/types";
+
+const ZERO_TOKENS = { input: 0, output: 0, total: 0 };
 
 export function App() {
   const renderer = useRenderer();
   const { width: termWidth, height: termHeight } = useTerminalDimensions();
 
-  // State
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [streamText_, setStreamText] = useState("");
-  const [showWelcome, setShowWelcome] = useState(true);
-  const [sessionUsage, setSessionUsage] = useState<LanguageModelUsage>();
-  const [cumulativeTokens, setCumulativeTokens] = useState({
-    input: 0,
-    output: 0,
-    total: 0,
-  });
+  const [cumulativeTokens, setCumulativeTokens] = useState(ZERO_TOKENS);
   const [selectedModel, setSelectedModel] = useState<string>(config.defaultModel);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [showPalette, setShowPalette] = useState(false);
-  const [messageScrollOffset, setMessageScrollOffset] = useState(0);
   const [conversationSummary, setConversationSummary] = useState("");
   const [isCompacting, setIsCompacting] = useState(false);
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
@@ -56,14 +49,14 @@ export function App() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Derived values
   const showApiKeyPrompt = !apiKeyLoading && !nvidiaApiKey;
   const isInputActive = !showPalette && !pendingApproval && !showApiKeyPrompt;
   const cols = termWidth || 80;
   const rows = termHeight || 24;
   const sidebarWidth = Math.max(25, Math.floor(cols * 0.2));
   const mainWidth = cols - sidebarWidth;
-  const reservedRows = showWelcome && messages.length === 0 ? 13 : 6;
+  const showWelcome = messages.length === 0;
+  const reservedRows = showWelcome ? 13 : 6;
   const availableRows = Math.max(7, rows - reservedRows);
 
   const hydrateSession = useCallback((session: PersistedSession) => {
@@ -72,12 +65,7 @@ export function App() {
     setToolCalls(session.toolCalls);
     setSelectedModel(session.model ?? config.defaultModel);
     setConversationSummary(session.conversationSummary ?? "");
-    setCumulativeTokens(session.cumulativeTokens ?? {
-      input: 0,
-      output: 0,
-      total: 0,
-    });
-    setShowWelcome(session.messages.length === 0);
+    setCumulativeTokens(session.cumulativeTokens ?? ZERO_TOKENS);
     setInput("");
     setStreamText("");
     setStreaming(false);
@@ -88,7 +76,6 @@ export function App() {
     setSessions(available);
   }, []);
 
-  // Tool approval helper
   const askUserApproval = useCallback(
     (toolName: string, args: any): Promise<boolean> =>
       new Promise((resolve) =>
@@ -97,7 +84,6 @@ export function App() {
     []
   );
 
-  // Load stored memory and persisted session on startup
   useEffect(() => {
     loadSettings()
       .then((settings) => {
@@ -121,7 +107,6 @@ export function App() {
     });
   }, [hydrateSession, refreshSessions]);
 
-  // Auto-save session when messages or tool calls change
   useEffect(() => {
     if (currentSessionId) {
       saveSession(
@@ -135,26 +120,18 @@ export function App() {
     }
   }, [currentSessionId, messages, toolCalls, selectedModel, conversationSummary, cumulativeTokens]);
 
-  // Reset scroll when messages change
-  useEffect(() => {
-    setMessageScrollOffset(0);
-  }, [messages.length, streaming]);
-
-  // Keyboard handling - only when input is active
   useKeyboard((key) => {
     if (showApiKeyPrompt && key.name === "escape") {
       renderer.destroy();
       process.exit(0);
     }
 
-    // Command palette toggle
     if (key.ctrl && key.name === "k" && !showPalette && !pendingApproval && !showApiKeyPrompt) {
       void refreshSessions();
       setShowPalette(true);
       return;
     }
 
-    // Escape handling
     if (key.name === "escape" && !showPalette && !pendingApproval && !showApiKeyPrompt) {
       if ((streaming || isCompacting) && abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -164,34 +141,6 @@ export function App() {
         process.exit(0);
       }
       return;
-    }
-
-    // Scroll controls (only when not in modal)
-    if (!showPalette && !pendingApproval && !showApiKeyPrompt) {
-      if (key.name === "up") {
-        setMessageScrollOffset((prev) => Math.min(messages.length, prev + 1));
-        return;
-      }
-      if (key.name === "down") {
-        setMessageScrollOffset((prev) => Math.max(0, prev - 1));
-        return;
-      }
-      if (key.name === "pageup") {
-        setMessageScrollOffset((prev) => Math.min(messages.length, prev + 5));
-        return;
-      }
-      if (key.name === "pagedown") {
-        setMessageScrollOffset((prev) => Math.max(0, prev - 5));
-        return;
-      }
-      if (key.name === "home") {
-        setMessageScrollOffset(messages.length);
-        return;
-      }
-      if (key.name === "end") {
-        setMessageScrollOffset(0);
-        return;
-      }
     }
   });
 
@@ -242,23 +191,16 @@ export function App() {
     setMessages([]);
     setToolCalls([]);
     setInput("");
-    setShowWelcome(true);
     setConversationSummary("");
-    setCumulativeTokens({
-      input: 0,
-      output: 0,
-      total: 0,
-    });
+    setCumulativeTokens(ZERO_TOKENS);
     await clearSession(currentSessionId);
     await refreshSessions();
   }, [currentSessionId, refreshSessions]);
 
-  // Handle submit
   const handleSubmit = useCallback(
     async (prompt: string) => {
       if (!prompt.trim() || streaming || isCompacting || !nvidiaApiKey || !currentSessionId) return;
 
-      setShowWelcome(false);
       const userMsg: Message = { role: "user", content: prompt.trim() };
       const newMessages = [...messages, userMsg];
       setMessages(newMessages);
@@ -285,7 +227,6 @@ export function App() {
           onCompactingChange: setIsCompacting,
           onConversationSummary: setConversationSummary,
           onUsage: (usage) => {
-            setSessionUsage(usage);
             setCumulativeTokens((prev) => ({
               input: prev.input + (usage?.inputTokens ?? 0),
               output: prev.output + (usage?.outputTokens ?? 0),
@@ -302,12 +243,10 @@ export function App() {
     [messages, selectedModel, streaming, conversationSummary, isCompacting, askUserApproval, nvidiaApiKey, currentSessionId]
   );
 
-  // Get visible messages
   const visibleMessages = useMemo(() => {
-    return messages.slice(-10); // Show last 10 messages
+    return messages.slice(-10);
   }, [messages]);
 
-  // Group tool calls by message index
   const toolCallsByMessageIndex = useMemo(() => {
     const map = new Map<number, ToolCall[]>();
     toolCalls.forEach((tc) => {
@@ -318,7 +257,6 @@ export function App() {
     return map;
   }, [toolCalls]);
 
-  // Streaming message
   const streamingMessage =
     streaming && streamText_
       ? { role: "assistant" as const, content: streamText_ }
@@ -337,8 +275,7 @@ export function App() {
         backgroundColor={colors.bgDark}
         flexDirection="column"
       >
-        {/* Welcome screen or messages */}
-        {showWelcome && messages.length === 0 ? (
+        {showWelcome ? (
           <WelcomeScreen />
         ) : (
           <box width="100%" flexGrow={1} paddingX={1} paddingY={1}>
@@ -350,14 +287,12 @@ export function App() {
               stickyStart="bottom"
               viewportCulling={true}
             >
-              {/* Orphan tool calls (running) */}
               {toolCalls
                 .filter((tc) => tc.assistantMessageIndex === -1)
                 .map((tc) => (
                   <ToolCallView key={tc.id} toolCall={tc} />
                 ))}
 
-              {/* Messages */}
               {visibleMessages.map((msg, i) => {
                 const actualIndex = messages.length - visibleMessages.length + i;
                 return (
@@ -371,7 +306,6 @@ export function App() {
                 );
               })}
 
-              {/* Streaming message */}
               {streamingMessage && (
                 <MessageView msg={streamingMessage} width={mainWidth - 4} isStreaming={true} />
               )}
@@ -381,7 +315,6 @@ export function App() {
         )}
 
         <box
-          // width="100%"
           width={mainWidth - 2}
           flexDirection="column"
           backgroundColor={colors.bg}
@@ -417,7 +350,6 @@ export function App() {
         </box>
       </box>
 
-      {/* Sidebar */}
       <box
         width={sidebarWidth}
         height="100%"
@@ -432,7 +364,6 @@ export function App() {
         />
       </box>
 
-      {/* Modals */}
       {showPalette && (
         <box
           position="absolute"
@@ -443,7 +374,7 @@ export function App() {
           zIndex={100}
         >
           <CommandPalette
-            sessionUsage={sessionUsage}
+            totalTokens={cumulativeTokens.total}
             sessions={sessions}
             currentSessionId={currentSessionId}
             onClose={() => setShowPalette(false)}
@@ -451,9 +382,7 @@ export function App() {
             onSwitchSession={handleSwitchSession}
             onChangeModel={setSelectedModel}
             onClearHistory={handleClearHistory}
-            onShowWelcome={() => {
-              setShowWelcome(true);
-            }}
+            onShowWelcome={handleNewSession}
           />
         </box>
       )}

@@ -6,22 +6,14 @@ interface ToolCallViewProps {
   toolCall: ToolCall;
 }
 
-function getStatusIcon(status: ToolCall["status"]): string {
-  switch (status) {
-    case "approved":
-      return "✓";
-    case "denied":
-      return "✗";
-    case "running":
-      return "⚡";
-    case "completed":
-      return "✓";
-    case "error":
-      return "!";
-    default:
-      return "○";
-  }
-}
+const STATUS_ICONS: Record<ToolCall["status"], string> = {
+  pending: "○",
+  approved: "✓",
+  denied: "✗",
+  running: "⚡",
+  completed: "✓",
+  error: "!",
+};
 
 function prettyPrintJSON(obj: any, maxLength: number = 300): string {
   const formatted = JSON.stringify(obj, null, 2);
@@ -33,10 +25,7 @@ export function ToolCallView({ toolCall }: ToolCallViewProps) {
   const statusColor = getToolStatusColor(toolCall.status);
   const argsDisplay = prettyPrintJSON(toolCall.args, 200);
   const resultDisplay = toolCall.result
-    ? prettyPrintJSON(
-        typeof toolCall.result === "string" ? toolCall.result : toolCall.result,
-        400
-      )
+    ? prettyPrintJSON(toolCall.result, 400)
     : null;
 
   return (
@@ -50,26 +39,22 @@ export function ToolCallView({ toolCall }: ToolCallViewProps) {
       borderStyle="single"
       borderColor={colors.yellow}
     >
-      {/* Header */}
       <box width="100%" flexDirection="row" gap={1}>
         <text content={t`${fg(theme.yellow)("🔧 ")}${bold(fg(theme.yellow)(toolCall.name))}`} />
-        <text content={t` ${fg(statusColor)(`${getStatusIcon(toolCall.status)} ${toolCall.status}`)}`} />
+        <text content={t` ${fg(statusColor)(`${STATUS_ICONS[toolCall.status]} ${toolCall.status}`)}`} />
       </box>
 
-      {/* Args */}
       <box width="100%" flexDirection="column" marginTop={1}>
         <text content={t`${fg(theme.comment)("Args:")}`} />
         <text content={argsDisplay} />
       </box>
 
-      {/* Running indicator */}
       {toolCall.status === "running" && (
         <box width="100%" marginTop={1}>
           <text content={t`${bold(fg(theme.yellow)("⚡ Running..."))}`} />
         </box>
       )}
 
-      {/* Result (if completed) */}
       {toolCall.status === "completed" && resultDisplay && (
         <box width="100%" flexDirection="column" marginTop={1}>
           <text content={t`${fg(theme.comment)("Result:")}`} />
@@ -77,14 +62,12 @@ export function ToolCallView({ toolCall }: ToolCallViewProps) {
         </box>
       )}
 
-      {/* Error (if error) */}
       {toolCall.status === "error" && toolCall.result && (
         <box width="100%" flexDirection="column" marginTop={1}>
           <text content={t`${fg(theme.red)(`Error: ${resultDisplay}`)}`} />
         </box>
       )}
 
-      {/* Denied message */}
       {toolCall.status === "denied" && (
         <box width="100%" marginTop={1}>
           <text content={t`${fg(theme.red)("Tool call was denied by user")}`} />

@@ -11,15 +11,12 @@ import {
   prepareMessages,
   compactMemoryTool,
   shouldCompact,
-  DEFAULT_MEMORY_CONFIG,
 } from "@/context/memory";
 import { webSearchTool, createFileTool, readFileTool, subAgentTool, writeFileTool } from "@/tools";
 import {
   discoverSkills,
-  DEFAULT_SKILL_DIRECTORIES,
   discoverSkillsTool,
   loadSkillTool,
-  sdbx,
 } from "@/tools/skill";
 import { grepTool } from "@/tools/grep";
 import { runCommandTool } from "@/tools/command";
@@ -84,7 +81,8 @@ export async function runAgentTurn({
   onUsage,
 }: RunAgentTurnOptions): Promise<void> {
   const assistantMessageIndex = messagesWithPrompt.length;
-  const needsCompaction = shouldCompact(messages, DEFAULT_MEMORY_CONFIG, prompt);
+  const needsCompaction = shouldCompact(messages, prompt);
+  const model = nvidia(selectedModel, nvidiaApiKey);
 
   let messagesToSend: any[] = toModelMessages(messagesWithPrompt);
 
@@ -108,8 +106,7 @@ export async function runAgentTurn({
     try {
       const prepared = await prepareMessages(
         messages,
-        DEFAULT_MEMORY_CONFIG,
-        nvidia(selectedModel, nvidiaApiKey),
+        model,
         abortSignal
       );
 
@@ -128,9 +125,11 @@ export async function runAgentTurn({
   }
 
   try {
+    const skills = await discoverSkills();
+
     while (true) {
       const result = streamText({
-        model: nvidia(selectedModel, nvidiaApiKey),
+        model,
         system: config.prompts.system,
         messages: messagesToSend,
         stopWhen: stepCountIs(5),
@@ -148,9 +147,7 @@ export async function runAgentTurn({
           create_file: createFileTool,
         },
         experimental_context: {
-          sandbox: sdbx,
-          skillsDirectories: DEFAULT_SKILL_DIRECTORIES,
-          skills: await discoverSkills(sdbx, DEFAULT_SKILL_DIRECTORIES),
+          skills,
           nvidiaApiKey,
         },
         onFinish: ({ usage }) => onUsage(usage),
@@ -213,20 +210,10 @@ export async function runAgentTurn({
         onToolCallsChange((prev) =>
           prev.map((tc) =>
             tc.id === r.approvalId
-              ? { ...tc, status: approved ? "approved" : "denied" }
+              ? { ...tc, status: approved ? "running" : "denied" }
               : tc
           )
         );
-
-        if (approved) {
-          onToolCallsChange((prev) =>
-            prev.map((tc) =>
-              tc.id === r.approvalId
-                ? { ...tc, status: "running" as const }
-                : tc
-            )
-          );
-        }
 
         approvals.push({
           type: "tool-approval-response",

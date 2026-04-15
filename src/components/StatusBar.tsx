@@ -23,7 +23,6 @@ export function StatusBar({ model, msgCount, cumulativeTokens }: StatusBarProps)
       justifyContent="space-between"
       backgroundColor={colors.bg}
     >
-
       <box width="100%" flexDirection="column" gap={2}>
         <text>
           <strong fg={theme.blue}>{config.appName}</strong>
@@ -38,8 +37,6 @@ export function StatusBar({ model, msgCount, cumulativeTokens }: StatusBarProps)
         </box>
       </box>
 
-
-      {/* Help */}
       <box width="100%" flexDirection="column" gap={0}>
         <text fg={theme.comment}>[ctrl+k] commands</text>
         <text fg={theme.red}>[esc] quit</text>

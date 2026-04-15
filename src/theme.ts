@@ -16,8 +16,6 @@ export const theme = {
   selection: "#373b41",
 } as const;
 
-export type Theme = typeof theme;
-
 // RGBA helpers for OpenTUI
 export const colors = {
   bg: RGBA.fromHex(theme.bg),
@@ -84,13 +82,6 @@ export const markdownStyle = SyntaxStyle.fromStyles({
   // Default text
   default: { fg: colors.fg },
 });
-
-// Status colors based on context percentage
-export function getContextColor(pct: number): RGBA {
-  if (pct >= 80) return colors.red;
-  if (pct >= 60) return colors.yellow;
-  return colors.green;
-}
 
 // Tool call status colors
 export function getToolStatusColor(status: string): RGBA {

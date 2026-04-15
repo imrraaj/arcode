@@ -1,19 +1,9 @@
 import { YAML } from "bun";
 import { readdir, readFile } from "fs/promises";
-import z from "zod";
 import { tool } from "ai";
+import { z } from "zod";
 import { resolveWorkspacePath } from "@/utils/workspace";
 import { config } from "@/utils/config";
-
-interface Sandbox {
-    readFile(path: string): Promise<string>;
-    readdir(
-        path: string,
-        opts: { withFileTypes: true },
-    ): Promise<{ name: string; isDirectory(): boolean }[]>;
-    exec(command: string): Promise<{ stdout: string; stderr: string }>;
-}
-
 
 export interface SkillMetadata {
     name: string;
@@ -24,8 +14,7 @@ export interface SkillMetadata {
 export const DEFAULT_SKILL_DIRECTORIES = config.tools.skills.defaultDirectories;
 
 export async function discoverSkills(
-    sandbox: Sandbox,
-    directories: readonly string[],
+    directories: readonly string[] = DEFAULT_SKILL_DIRECTORIES,
 ): Promise<SkillMetadata[]> {
     const skills: SkillMetadata[] = [];
     const seenNames = new Set<string>();
@@ -33,7 +22,7 @@ export async function discoverSkills(
     async function scanDir(dir: string) {
         let entries;
         try {
-            entries = await sandbox.readdir(dir, { withFileTypes: true });
+            entries = await readdir(resolveWorkspacePath(dir), { withFileTypes: true });
         } catch {
             return;
         }
@@ -45,7 +34,7 @@ export async function discoverSkills(
             const skillFile = `${skillDir}/SKILL.md`;
 
             try {
-                const content = await sandbox.readFile(skillFile);
+                const content = await readFile(resolveWorkspacePath(skillFile), "utf-8");
                 const frontmatter = parseFrontmatter(content);
 
                 if (!seenNames.has(frontmatter.name)) {
@@ -69,52 +58,16 @@ export async function discoverSkills(
     return skills;
 }
 
-export function parseFrontmatter(content: string): { name: string; description: string, path?: string } {
+function parseFrontmatter(content: string): { name: string; description: string } {
     const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (!match?.[1]) throw new Error('No frontmatter found');
-    return YAML.parse(match[1]) as { name: string; description: string, path?: string };
+    return YAML.parse(match[1]) as { name: string; description: string };
 }
-
-export const sdbx: Sandbox = {
-    exec: async (command) => {
-        const proc = Bun.spawn([command]);
-        return { stdout: proc.stdout.toString(), stderr: "" };
-    },
-    readFile: async (path) => {
-        const resolvedPath = resolveWorkspacePath(path);
-        const content = await readFile(resolvedPath, "utf-8");
-        return content;
-    },
-    readdir: async (path, opts) => {
-        const resolvedPath = resolveWorkspacePath(path);
-        const entries = await readdir(resolvedPath, opts);
-        return entries;
-    }
-}
-
-function buildSkillsPrompt(skills: SkillMetadata[]): string {
-    const skillsList = skills
-        .map(s => `- ${s.name}: ${s.description}`)
-        .join('\n');
-
-    return `
-## Skills
-
-Use the \`loadSkill\` tool to load a skill when the user's request
-would benefit from specialized instructions.
-
-Available skills:
-${skillsList}
-`;
-}
-
 
 function stripFrontmatter(content: string): string {
     const match = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
     return match ? content.slice(match[0].length).trim() : content.trim();
 }
-
-
 
 export const loadSkillTool = tool({
     description: "Load a skill by name. Use when the user's request would benefit from specialized instructions. Refer to the 'Skills' section for available skills.",
@@ -123,14 +76,15 @@ export const loadSkillTool = tool({
     }),
     needsApproval: true,
     execute: async ({ name }, { experimental_context }) => {
-        const { sandbox, skills } = experimental_context as { sandbox: Sandbox, skills: SkillMetadata[] };
-        const skill = skills.find(s => s.name.toLowerCase() === name.toLowerCase());
+        const skills = (experimental_context as { skills?: SkillMetadata[] } | undefined)?.skills;
+        const availableSkills = skills ?? await discoverSkills();
+        const skill = availableSkills.find(s => s.name.toLowerCase() === name.toLowerCase());
         if (!skill) {
             return { error: `Skill '${name}' not found` };
         }
 
         const skillFile = `${skill.path}/SKILL.md`;
-        const content = await sandbox.readFile(skillFile);
+        const content = await readFile(resolveWorkspacePath(skillFile), "utf-8");
         const body = stripFrontmatter(content);
 
         return {
@@ -143,18 +97,8 @@ export const loadSkillTool = tool({
 export const discoverSkillsTool = tool({
     description: "Discover available skills. Use to get an updated list of skills and their descriptions.",
     inputSchema: z.object({}),
-    execute: async (_, { experimental_context }) => {
-        const {
-            sandbox,
-            skillsDirectories,
-        } = experimental_context as {
-            sandbox: Sandbox;
-            skillsDirectories?: readonly string[];
-        };
-        const directories = skillsDirectories?.length
-            ? skillsDirectories
-            : DEFAULT_SKILL_DIRECTORIES;
-        const skills = await discoverSkills(sandbox, directories);
+    execute: async () => {
+        const skills = await discoverSkills();
         return skills.map(s => ({ name: s.name, description: s.description }));
     },
 });

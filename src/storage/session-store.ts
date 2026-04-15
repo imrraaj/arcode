@@ -80,11 +80,10 @@ function generateSessionId(): string {
 }
 
 function normalizeTokens(tokens: TokenTotals | undefined | null): TokenTotals {
-  if (!tokens) return { ...EMPTY_TOKENS };
   return {
-    input: tokens.input ?? 0,
-    output: tokens.output ?? 0,
-    total: tokens.total ?? 0,
+    input: tokens?.input ?? 0,
+    output: tokens?.output ?? 0,
+    total: tokens?.total ?? 0,
   };
 }
 
@@ -170,20 +169,16 @@ function getSchemaVersion(database: Database): number {
 async function applyMigrations(database: Database): Promise<void> {
   const currentVersion = getSchemaVersion(database);
   const migrations = await listMigrations();
+  const runMigration = database.transaction((sql: string, version: number) => {
+    database.run(sql);
+    database.run(`PRAGMA user_version = ${version}`);
+  });
 
   for (const migration of migrations) {
     if (migration.version <= currentVersion) continue;
 
     const sql = await readFile(join(MIGRATIONS_DIR, migration.filename), "utf-8");
-    database.run("BEGIN");
-    try {
-      database.run(sql);
-      database.run(`PRAGMA user_version = ${migration.version}`);
-      database.run("COMMIT");
-    } catch (error) {
-      database.run("ROLLBACK");
-      throw error;
-    }
+    runMigration(sql, migration.version);
   }
 }
 
@@ -222,12 +217,11 @@ function setState(database: Database, key: string, value: string): void {
 }
 
 function saveSessionInDb(database: Database, session: PersistedSession): void {
-  const tokens = normalizeTokens(session.cumulativeTokens);
-  const now = new Date().toISOString();
-  const updatedAt = session.timestamp ?? now;
+  database.transaction((sessionToSave: PersistedSession) => {
+    const tokens = normalizeTokens(sessionToSave.cumulativeTokens);
+    const now = new Date().toISOString();
+    const updatedAt = sessionToSave.timestamp ?? now;
 
-  database.run("BEGIN");
-  try {
     database
       .query(`
         INSERT INTO sessions (
@@ -252,10 +246,10 @@ function saveSessionInDb(database: Database, session: PersistedSession): void {
           updated_at = excluded.updated_at
       `)
       .run(
-        session.id,
-        session.title,
-        session.model ?? null,
-        session.conversationSummary ?? "",
+        sessionToSave.id,
+        sessionToSave.title,
+        sessionToSave.model ?? null,
+        sessionToSave.conversationSummary ?? "",
         tokens.input,
         tokens.output,
         tokens.total,
@@ -263,15 +257,15 @@ function saveSessionInDb(database: Database, session: PersistedSession): void {
         updatedAt,
       );
 
-    database.query("DELETE FROM messages WHERE session_id = ?").run(session.id);
-    database.query("DELETE FROM tool_calls WHERE session_id = ?").run(session.id);
+    database.query("DELETE FROM messages WHERE session_id = ?").run(sessionToSave.id);
+    database.query("DELETE FROM tool_calls WHERE session_id = ?").run(sessionToSave.id);
 
     const insertMessage = database.query(`
       INSERT INTO messages (session_id, role, content, order_index, created_at)
       VALUES (?, ?, ?, ?, ?)
     `);
-    session.messages.forEach((message, index) => {
-      insertMessage.run(session.id, message.role, message.content, index, now);
+    sessionToSave.messages.forEach((message, index) => {
+      insertMessage.run(sessionToSave.id, message.role, message.content, index, now);
     });
 
     const insertToolCall = database.query(`
@@ -287,10 +281,10 @@ function saveSessionInDb(database: Database, session: PersistedSession): void {
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    session.toolCalls.forEach((toolCall) => {
+    sessionToSave.toolCalls.forEach((toolCall) => {
       insertToolCall.run(
         toolCall.id,
-        session.id,
+        sessionToSave.id,
         toolCall.assistantMessageIndex,
         toolCall.name,
         JSON.stringify(toolCall.args ?? {}),
@@ -299,15 +293,10 @@ function saveSessionInDb(database: Database, session: PersistedSession): void {
         toolCall.timestamp.toISOString(),
       );
     });
-
-    database.run("COMMIT");
-  } catch (error) {
-    database.run("ROLLBACK");
-    throw error;
-  }
+  })(session);
 }
 
-async function readSession(database: Database, sessionId: string): Promise<PersistedSession | null> {
+function readSession(database: Database, sessionId: string): PersistedSession | null {
   const session = database
     .query("SELECT * FROM sessions WHERE id = ?")
     .get(sessionId) as SessionRow | null;
@@ -407,7 +396,7 @@ export async function saveSession(
   const database = await getDb();
   if (!database) return;
 
-  const existing = await readSession(database, sessionId);
+  const existing = readSession(database, sessionId);
   const session: PersistedSession = {
     id: sessionId,
     title: title ?? existing?.title ?? deriveTitle(messages, sessionId),
@@ -432,14 +421,14 @@ export async function loadSession(sessionId?: string): Promise<PersistedSession 
   if (!database) return null;
 
   if (sessionId) {
-    const session = await readSession(database, sessionId);
+    const session = readSession(database, sessionId);
     if (session) setState(database, "current_session_id", session.id);
     return session;
   }
 
   const current = getState(database, "current_session_id");
   if (current) {
-    const session = await readSession(database, current);
+    const session = readSession(database, current);
     if (session) return session;
   }
 
@@ -448,7 +437,7 @@ export async function loadSession(sessionId?: string): Promise<PersistedSession 
     .get() as { id: string } | null;
 
   if (!latest) return null;
-  const session = await readSession(database, latest.id);
+  const session = readSession(database, latest.id);
   if (session) setState(database, "current_session_id", session.id);
   return session;
 }
@@ -457,7 +446,7 @@ export async function clearSession(sessionId: string): Promise<void> {
   const database = await getDb();
   if (!database) return;
 
-  const existing = await readSession(database, sessionId);
+  const existing = readSession(database, sessionId);
   await saveSession(
     sessionId,
     [],

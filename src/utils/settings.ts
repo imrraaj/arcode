@@ -29,5 +29,3 @@ export async function saveSettings(settings: ArcSettings): Promise<boolean> {
     return false;
   }
 }
-
-export const SETTINGS_FILE_PATH = config.paths.settingsFile;

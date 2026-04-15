@@ -1,20 +1,19 @@
 import { useState, useMemo } from "react";
 import { useKeyboard } from "@opentui/react";
 import { theme, colors } from "../theme";
-import type { LanguageModelUsage } from "ai";
 import { config } from "@/utils/config";
-import type { SessionMeta } from "../utils/persistence";
+import type { SessionMeta } from "@/storage/session-store";
 
 interface CommandPaletteProps {
-  sessionUsage?: LanguageModelUsage;
+  totalTokens: number;
   sessions: SessionMeta[];
   currentSessionId: string | null;
   onClose: () => void;
   onNewSession: () => void | Promise<void>;
   onSwitchSession: (sessionId: string) => void | Promise<void>;
   onChangeModel: (model: string) => void;
-  onClearHistory: () => void;
-  onShowWelcome: () => void;
+  onClearHistory: () => void | Promise<void>;
+  onShowWelcome: () => void | Promise<void>;
 }
 
 type Mode = "commands" | "models" | "sessions";
@@ -35,7 +34,7 @@ const COMMANDS: Command[] = [
 ];
 
 export function CommandPalette({
-  sessionUsage,
+  totalTokens,
   sessions,
   currentSessionId,
   onClose,
@@ -49,10 +48,18 @@ export function CommandPalette({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [mode, setMode] = useState<Mode>("commands");
 
+  const setModeAndReset = (nextMode: Mode) => {
+    setMode(nextMode);
+    setQuery("");
+    setSelectedIndex(0);
+  };
+
   const items = useMemo(() => {
+    const needle = query.toLowerCase();
+
     if (mode === "models") {
       return config.availableModels.filter((model) =>
-        model.toLowerCase().includes(query.toLowerCase())
+        model.toLowerCase().includes(needle)
       ).map((model) => ({
         id: model,
         label: model,
@@ -64,7 +71,7 @@ export function CommandPalette({
       return sessions
         .filter((session) => {
           const haystack = `${session.title} ${session.id}`.toLowerCase();
-          return haystack.includes(query.toLowerCase());
+          return haystack.includes(needle);
         })
         .map((session) => ({
           id: session.id,
@@ -78,11 +85,10 @@ export function CommandPalette({
 
     return COMMANDS.filter((command) => {
       const haystack = `${command.label} ${command.description}`.toLowerCase();
-      return haystack.includes(query.toLowerCase());
+      return haystack.includes(needle);
     });
   }, [mode, query, sessions, currentSessionId]);
 
-  // Keyboard handling
   useKeyboard((key) => {
     if (key.ctrl && key.name === "k") {
       onClose();
@@ -91,9 +97,7 @@ export function CommandPalette({
 
     if (key.name === "escape") {
       if (mode === "models" || mode === "sessions") {
-        setMode("commands");
-        setQuery("");
-        setSelectedIndex(0);
+        setModeAndReset("commands");
         return;
       }
       onClose();
@@ -133,9 +137,7 @@ export function CommandPalette({
       }
 
       if (selected.id === "change-model") {
-        setMode("models");
-        setQuery("");
-        setSelectedIndex(0);
+        setModeAndReset("models");
         return;
       }
 
@@ -146,31 +148,28 @@ export function CommandPalette({
       }
 
       if (selected.id === "switch-session") {
-        setMode("sessions");
-        setQuery("");
-        setSelectedIndex(0);
+        setModeAndReset("sessions");
         return;
       }
 
       if (selected.id === "clear-history") {
-        onClearHistory();
+        void onClearHistory();
         onClose();
         return;
       }
 
       if (selected.id === "show-welcome") {
-        onShowWelcome();
+        void onShowWelcome();
         onClose();
         return;
       }
 
       if (selected.id === "view-usage") {
-        setQuery(`usage ${sessionUsage?.totalTokens ?? 0} tokens`);
+        setQuery(`usage ${totalTokens} tokens`);
       }
       return;
     }
 
-    // Character input
     if (key.sequence && key.sequence.length === 1) {
       setQuery((prev) => prev + key.sequence);
       setSelectedIndex(0);
@@ -186,27 +185,20 @@ export function CommandPalette({
       borderColor={theme.comment}
       flexDirection="column"
     >
-      {/* Title */}
       <box width="100%" paddingX={1}>
         <text>
           <strong>
-            {mode === "models"
-              ? "Select Model"
-              : mode === "sessions"
-                ? "Select Session"
-                : "Commands"}
+            {{ models: "Select Model", sessions: "Select Session", commands: "Commands" }[mode]}
           </strong>
         </text>
       </box>
 
-      {/* Search */}
       <box width="100%" paddingX={1} flexDirection="row">
         <text fg={theme.comment}>/ </text>
         <text>{query}</text>
         <text fg={theme.purple}>_</text>
       </box>
 
-      {/* Items */}
       <box width="100%" flexDirection="column" marginTop={1}>
         {items.map((item, index) => (
           <box
@@ -225,7 +217,6 @@ export function CommandPalette({
         ))}
       </box>
 
-      {/* Footer */}
       <box width="100%" marginTop={1} paddingX={1}>
         <text fg={theme.comment}>
           [↑↓] navigate [enter] select [ctrl+k/esc] close

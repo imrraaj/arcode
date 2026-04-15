@@ -55,29 +55,3 @@ export function MessageView({ msg, width = 80, isStreaming = false }: MessageVie
     </box>
   );
 }
-
-// Simple text-only message for system/compact messages
-export function SimpleMessageView({ msg, width = 80 }: MessageViewProps) {
-  const roleColors = messageColors[msg.role];
-  const color = msg.role === "system" ? theme.yellow : theme.fg;
-
-  return (
-    <box
-      width="100%"
-      paddingX={1}
-      paddingY={1}
-      backgroundColor={roleColors.bg}
-      border={["left"]}
-      borderStyle="single"
-      borderColor={roleColors.border}
-    >
-      <text
-        content={
-          msg.role === "system"
-            ? t`${fg(color)(msg.content)}`
-            : msg.content
-        }
-      />
-    </box>
-  );
-}

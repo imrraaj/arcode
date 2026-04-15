@@ -19,9 +19,6 @@ function truncate(text: string): string {
     return `${kept}\n... [truncated — output exceeded ${maxOutputBytes} bytes]`;
 }
 
-// Exported so the LLM can call it to kill a hanging process by PID.
-const runningProcs = new Map<number, ReturnType<typeof Bun.spawn>>();
-
 export const runCommandTool = tool({
     description:
         'Run a shell command in the project working directory and return stdout/stderr. ' +
@@ -81,8 +78,6 @@ export const runCommandTool = tool({
             },
         });
 
-        runningProcs.set(proc.pid, proc);
-
         // Kill when timeout fires or caller aborts (e.g. user presses ctrl+c)
         const timer = setTimeout(() => proc.kill('SIGKILL'), timeoutMs);
         abortSignal?.addEventListener('abort', () => proc.kill('SIGKILL'));
@@ -104,23 +99,6 @@ export const runCommandTool = tool({
             return parts.join('\n\n');
         } finally {
             clearTimeout(timer);
-            runningProcs.delete(proc.pid);
         }
-    },
-});
-
-export const killCommandTool = tool({
-    description:
-        'Kill a running shell command by its PID. Use this when a previous run_command appears to be hanging.',
-    inputSchema: z.object({
-        pid: z.number().int().describe('Process ID returned from a run_command call'),
-    }),
-    needsApproval: false,
-    execute: async ({ pid }) => {
-        const proc = runningProcs.get(pid);
-        if (!proc) return `No running process with PID ${pid} found.`;
-        proc.kill('SIGKILL');
-        runningProcs.delete(pid);
-        return `Process ${pid} killed.`;
     },
 });
