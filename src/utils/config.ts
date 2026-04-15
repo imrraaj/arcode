@@ -4,9 +4,8 @@ import { WORKSPACE_ROOT } from "@/utils/workspace";
 import { prompts } from "@/prompts";
 
 const arcHomeDir = join(homedir(), ".arc");
-const arcSessionsDir = join(arcHomeDir, "sessions");
 const arcSettingsFile = join(arcHomeDir, "config.json");
-const arcCurrentSessionFile = join(arcHomeDir, "current-session.json");
+const arcDatabaseFile = join(arcHomeDir, "arc.db");
 
 const availableModels = [
     "qwen/qwen3.5-122b-a10b",
@@ -23,9 +22,8 @@ export const config = {
 
     paths: {
         dataDir: arcHomeDir,
-        sessionsDir: arcSessionsDir,
         settingsFile: arcSettingsFile,
-        currentSessionFile: arcCurrentSessionFile,
+        databaseFile: arcDatabaseFile,
     },
 
     storage: {
